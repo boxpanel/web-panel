@@ -108,7 +108,7 @@ install_webpanel() {
     
     # 下载最新版本
     LATEST_URL="https://api.github.com/repos/boxpanel/web-panel/releases/latest"
-    DOWNLOAD_URL=$(curl -s "$LATEST_URL" | grep "browser_download_url.*${OS}_${ARCH}.tar.gz" | cut -d '"' -f 4)
+    DOWNLOAD_URL=$(curl -s -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$LATEST_URL?$(date +%s)" | grep "browser_download_url.*${OS}_${ARCH}.tar.gz" | cut -d '"' -f 4)
     
     if [[ -z "$DOWNLOAD_URL" ]]; then
         print_error "无法获取下载链接"
@@ -116,7 +116,7 @@ install_webpanel() {
     fi
     
     print_status "下载地址: $DOWNLOAD_URL"
-    wget -O web-panel.tar.gz "$DOWNLOAD_URL"
+    wget --no-cache --no-cookies -O web-panel.tar.gz "$DOWNLOAD_URL"
     
     # 解压
     tar -xzf web-panel.tar.gz

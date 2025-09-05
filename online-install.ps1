@@ -75,8 +75,12 @@ function Get-LatestRelease {
     Write-Status "获取最新版本信息..."
     
     try {
-        $apiUrl = "https://api.github.com/repos/boxpanel/web-panel/releases/latest"
-        $release = Invoke-RestMethod -Uri $apiUrl -Method Get
+        $apiUrl = "https://api.github.com/repos/boxpanel/web-panel/releases/latest?$(Get-Date -Format 'yyyyMMddHHmmss')"
+        $headers = @{
+            'Cache-Control' = 'no-cache'
+            'Pragma' = 'no-cache'
+        }
+        $release = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers
         
         $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
         $asset = $release.assets | Where-Object { $_.name -like "*windows_$arch.zip" }
@@ -109,7 +113,11 @@ function Install-WebPanel {
     
     Write-Status "下载安装包: $downloadUrl"
     try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -UseBasicParsing
+        $headers = @{
+            'Cache-Control' = 'no-cache'
+            'Pragma' = 'no-cache'
+        }
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -UseBasicParsing -Headers $headers
     }
     catch {
         Write-Error "下载失败: $($_.Exception.Message)"
