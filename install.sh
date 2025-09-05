@@ -319,7 +319,13 @@ main() {
     echo -e "${BLUE}适用于内存 ≤ 1GB, CPU ≤ 2核心的服务器${NC}"
     echo ""
     
-    # Root用户检查已移除，允许root用户运行此脚本
+    # 检查sudo权限
+    if ! sudo -n true 2>/dev/null; then
+        echo -e "${RED}此脚本需要sudo权限来执行系统级操作${NC}"
+        echo -e "${YELLOW}请确保当前用户在sudoers组中，或以root用户运行${NC}"
+        echo -e "${BLUE}尝试运行: sudo $0${NC}"
+        exit 1
+    fi
     
     # 检查系统
     if ! command_exists curl; then
