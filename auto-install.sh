@@ -35,8 +35,10 @@ ADMIN_USER=${ADMIN_USER:-admin}
 ADMIN_PASS=${ADMIN_PASS:-admin123}
 DB_TYPE=${DB_TYPE:-sqlite}
 JWT_SECRET="web-panel-$(date +%s)-$(openssl rand -hex 16 2>/dev/null || echo 'fallback')"
-INSTALL_DIR=${INSTALL_DIR:-/opt/web-panel}
-SERVICE_NAME=${SERVICE_NAME:-web-panel}
+INSTALL_DIR=${INSTALL_DIR:-/opt/webpanel}
+DATA_DIR=${DATA_DIR:-/opt/webpanel_data}
+BACKUP_DIR=${BACKUP_DIR:-/opt/webpanel_backup}
+SERVICE_NAME=${SERVICE_NAME:-webpanel}
 USER_NAME=${USER_NAME:-webpanel}
 
 # 检查系统
@@ -193,7 +195,7 @@ setup_config() {
     log_info "创建配置文件..."
     
     # 创建必要目录
-    mkdir -p data logs uploads
+    mkdir -p "$DATA_DIR" "$BACKUP_DIR" "$DATA_DIR/logs" "$DATA_DIR/uploads"
     
     # 创建配置文件
     cat > .env << EOF
@@ -207,15 +209,18 @@ JWT_EXPIRES_IN=24h
 
 # 数据库配置
 DB_TYPE=$DB_TYPE
-DB_PATH=./data/database.sqlite
+DB_PATH=$DATA_DIR/database.sqlite
 
 # 文件上传配置
-UPLOAD_PATH=./uploads
+UPLOAD_PATH=$DATA_DIR/uploads
 MAX_UPLOAD_SIZE=10485760
 
 # 日志配置
 LOG_LEVEL=info
-LOG_PATH=./logs
+LOG_PATH=$DATA_DIR/logs
+
+# 备份配置
+BACKUP_PATH=$BACKUP_DIR
 
 # 其他配置
 ENABLE_CORS=true
@@ -304,15 +309,55 @@ show_info() {
         echo "  查看状态: systemctl status $SERVICE_NAME"
         echo "  查看日志: journalctl -u $SERVICE_NAME -f"
     else
-        echo "🔧 启动命令:"
-        echo "  启动服务: $EXEC_FILE"
-        echo "  后台运行: nohup $EXEC_FILE > logs/app.log 2>&1 &"
+        if [[ "$OS" == "linux" ]]; then
+            echo "🔧 启动命令:"
+            echo "  启动服务: $INSTALL_DIR/web-panel"
+            echo "  后台运行: nohup $INSTALL_DIR/web-panel > $DATA_DIR/logs/app.log 2>&1 &"
+        else
+            echo "🔧 启动命令:"
+            echo "  启动服务: $INSTALL_DIR/web-panel.exe"
+            echo "  后台运行: nohup $INSTALL_DIR/web-panel.exe > $DATA_DIR/logs/app.log 2>&1 &"
+        fi
     fi
     
     echo ""
-    echo "📁 安装目录: $(pwd)"
-    echo "⚙️  配置文件: $(pwd)/.env"
+    echo "📁 安装目录: $INSTALL_DIR"
+    echo "📁 数据目录: $DATA_DIR"
+    echo "📁 备份目录: $BACKUP_DIR"
+    echo "⚙️  配置文件: $INSTALL_DIR/.env"
+    echo "📊 数据库文件: $DATA_DIR/database.sqlite"
+    echo "📝 日志目录: $DATA_DIR/logs"
+    echo "📤 上传目录: $DATA_DIR/uploads"
     echo ""
+}
+
+# 安装文件到目标目录
+install_files() {
+    log_info "安装文件到目标目录..."
+    
+    # 创建安装目录
+    mkdir -p "$INSTALL_DIR"
+    
+    # 复制可执行文件
+    if [[ "$OS" == "linux" ]]; then
+        cp web-panel "$INSTALL_DIR/"
+        chmod +x "$INSTALL_DIR/web-panel"
+    else
+        cp web-panel.exe "$INSTALL_DIR/"
+        chmod +x "$INSTALL_DIR/web-panel.exe"
+    fi
+    
+    # 复制配置文件
+    cp .env "$INSTALL_DIR/"
+    
+    # 设置目录权限
+    if [[ "$EUID" -eq 0 ]] && [[ "$OS" == "linux" ]]; then
+        chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR" "$DATA_DIR" "$BACKUP_DIR"
+        chmod 755 "$INSTALL_DIR"
+        chmod 755 "$DATA_DIR" "$BACKUP_DIR"
+    fi
+    
+    log_success "文件安装完成"
 }
 
 # 主函数
@@ -322,9 +367,13 @@ main() {
     
     # 显示配置信息
     log_info "使用配置:"
+    echo "  安装目录: $INSTALL_DIR"
+    echo "  数据目录: $DATA_DIR"
+    echo "  备份目录: $BACKUP_DIR"
     echo "  端口: $WEB_PORT"
     echo "  管理员: $ADMIN_USER"
     echo "  数据库: $DB_TYPE"
+    echo "  服务名称: $SERVICE_NAME"
     
     check_system
     check_go "$1"
@@ -332,6 +381,7 @@ main() {
     install_dependencies "$1"
     build_app
     setup_config
+    install_files
     create_service
     start_service
     show_info
