@@ -129,8 +129,15 @@ download_project() {
     
     # 使用浅克隆以节省带宽和存储
     if [ -d ".git" ]; then
+        echo -e "${BLUE}更新现有项目...${NC}"
         sudo -u "$SERVICE_USER" git pull
     else
+        # 检查目录是否为空
+        if [ "$(ls -A . 2>/dev/null)" ]; then
+            echo -e "${YELLOW}目录不为空，清理现有文件...${NC}"
+            sudo -u "$SERVICE_USER" rm -rf * .[^.]* 2>/dev/null || true
+        fi
+        echo -e "${BLUE}克隆项目文件...${NC}"
         sudo -u "$SERVICE_USER" git clone --depth 1 https://github.com/boxpanel/web-panel.git .
     fi
 }
