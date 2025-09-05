@@ -319,12 +319,7 @@ main() {
     echo -e "${BLUE}适用于内存 ≤ 1GB, CPU ≤ 2核心的服务器${NC}"
     echo ""
     
-    # 检查root权限
-    if [ "$EUID" -eq 0 ]; then
-        echo -e "${RED}请不要使用root用户运行此脚本${NC}"
-        echo "请使用: curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install.sh | bash"
-        exit 1
-    fi
+    # Root用户检查已移除，允许root用户运行此脚本
     
     # 检查系统
     if ! command_exists curl; then
