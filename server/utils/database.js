@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 class Database {
     constructor() {
         this.db = null;
-        this.dbPath = process.env.DB_PATH || './data/database.sqlite';
+        this.dbPath = process.env.DATABASE_PATH || process.env.DB_PATH || './data/database.sqlite';
     }
 
     // 初始化数据库连接

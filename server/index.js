@@ -33,9 +33,11 @@ const wss = new WebSocket.Server({
 const PORT = process.env.PORT || 3001;
 
 // Create necessary directories
-const uploadsDir = path.join(__dirname, '../uploads');
-const logsDir = path.join(__dirname, '../logs');
-const dataDir = path.join(__dirname, '../data');
+const uploadsDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
+const logsDir = process.env.LOG_DIR || path.join(__dirname, '../logs');
+const dataDir = process.env.DATA_DIR || path.join(__dirname, '../data');
+const backupDir = process.env.BACKUP_DIR || path.join(__dirname, '../backup');
+
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -44,6 +46,9 @@ if (!fs.existsSync(logsDir)) {
 }
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
+}
+if (!fs.existsSync(backupDir)) {
+  fs.mkdirSync(backupDir, { recursive: true });
 }
 
 // Rate limiting
