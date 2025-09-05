@@ -27,10 +27,10 @@ func Init(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	// 配置GORM日志
 	gormLog := logger.NewGormLogger()
 
-	// 使用modernc.org/sqlite驱动（纯Go实现，无需CGO）
+	// 使用GORM SQLite驱动（纯Go实现，无需CGO）
 	var err error
 	db, err = gorm.Open(sqlite.Open(cfg.Path), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
+		Logger: gormLog,
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	if err != nil {
@@ -73,7 +73,7 @@ func autoMigrate() error {
 		&model.Permission{},
 		&model.UserRole{},
 		&model.RolePermission{},
-		&model.Session{},
+		// &model.Session{}, // 临时跳过Session模型
 		&model.AuditLog{},
 		&model.SystemConfig{},
 		&model.FileInfo{},

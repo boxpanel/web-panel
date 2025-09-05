@@ -45,8 +45,7 @@ type User struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
 
 	// 关联关系
-	Roles    []Role    `json:"roles,omitempty" gorm:"many2many:user_roles;"`
-	Sessions []Session `json:"sessions,omitempty" gorm:"foreignKey:UserID"`
+	Roles []Role `json:"roles,omitempty" gorm:"many2many:user_roles;"`
 }
 
 // TableName 指定表名
@@ -178,14 +177,9 @@ func (Permission) TableName() string {
 
 // UserRole 用户角色关联表
 type UserRole struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	UserID    uint      `json:"user_id" gorm:"not null;index"`
-	RoleID    uint      `json:"role_id" gorm:"not null;index"`
+	UserID    uint      `json:"user_id" gorm:"primaryKey;not null"`
+	RoleID    uint      `json:"role_id" gorm:"primaryKey;not null"`
 	CreatedAt time.Time `json:"created_at"`
-
-	// 关联关系
-	User User `json:"user,omitempty" gorm:"foreignKey:UserID"`
-	Role Role `json:"role,omitempty" gorm:"foreignKey:RoleID"`
 }
 
 // TableName 指定表名
@@ -195,14 +189,9 @@ func (UserRole) TableName() string {
 
 // RolePermission 角色权限关联表
 type RolePermission struct {
-	ID           uint      `json:"id" gorm:"primaryKey"`
-	RoleID       uint      `json:"role_id" gorm:"not null;index"`
-	PermissionID uint      `json:"permission_id" gorm:"not null;index"`
+	RoleID       uint      `json:"role_id" gorm:"primaryKey;not null"`
+	PermissionID uint      `json:"permission_id" gorm:"primaryKey;not null"`
 	CreatedAt    time.Time `json:"created_at"`
-
-	// 关联关系
-	Role       Role       `json:"role,omitempty" gorm:"foreignKey:RoleID"`
-	Permission Permission `json:"permission,omitempty" gorm:"foreignKey:PermissionID"`
 }
 
 // TableName 指定表名

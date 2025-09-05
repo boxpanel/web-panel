@@ -8,7 +8,6 @@ import (
 type Session struct {
 	ID        string    `json:"id" gorm:"primaryKey;size:128"`
 	UserID    uint      `json:"user_id" gorm:"not null;index"`
-	User      User      `json:"user" gorm:"foreignKey:UserID"`
 	Token     string    `json:"-" gorm:"uniqueIndex;not null;size:512"`
 	IPAddress string    `json:"ip_address" gorm:"size:45"`
 	UserAgent string    `json:"user_agent" gorm:"size:512"`
@@ -31,7 +30,6 @@ func (s *Session) IsExpired() bool {
 type AuditLog struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	UserID    *uint     `json:"user_id" gorm:"index"`
-	User      *User     `json:"user,omitempty" gorm:"foreignKey:UserID"`
 	Action    string    `json:"action" gorm:"not null;size:100"`
 	Resource  string    `json:"resource" gorm:"size:100"`
 	Details   string    `json:"details" gorm:"type:text"`

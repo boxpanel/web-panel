@@ -75,9 +75,10 @@ func main() {
 
 	// 启动服务器
 	go func() {
-		logger.Info("服务器启动", "port", cfg.System.Port)
+		fmt.Printf("服务器启动在端口: %d\n", cfg.System.Port)
+		logger.Logger.Infof("服务器启动在端口: %d", cfg.System.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("服务器启动失败", "error", err)
+			logger.Logger.Fatalf("服务器启动失败: %v", err)
 		}
 	}()
 
@@ -86,16 +87,19 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info("服务器正在关闭...")
+	fmt.Println("服务器正在关闭...")
+	logger.Logger.Info("服务器正在关闭...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Fatal("服务器强制关闭", "error", err)
+		fmt.Printf("服务器强制关闭: %v\n", err)
+		logger.Logger.Fatalf("服务器强制关闭: %v", err)
 	}
 
-	logger.Info("服务器已关闭")
+	fmt.Println("服务器已关闭")
+	logger.Logger.Info("服务器已关闭")
 }
 
 // startSystemMonitor 启动系统监控定时任务
