@@ -98,48 +98,129 @@ create_user() {
     fi
 }
 
+# 用户配置收集
+collect_user_config() {
+    print_status "配置Web Panel..."
+    
+    # 收集端口号
+    read -p "请输入Web Panel端口号 [默认: 8080]: " WEB_PORT
+    WEB_PORT=${WEB_PORT:-8080}
+    
+    # 收集管理员账号
+    read -p "请输入管理员用户名 [默认: admin]: " ADMIN_USER
+    ADMIN_USER=${ADMIN_USER:-admin}
+    
+    # 收集管理员密码
+    while true; do
+        read -s -p "请输入管理员密码: " ADMIN_PASS
+        echo
+        read -s -p "请确认管理员密码: " ADMIN_PASS_CONFIRM
+        echo
+        if [[ "$ADMIN_PASS" == "$ADMIN_PASS_CONFIRM" ]]; then
+            break
+        else
+            print_error "密码不匹配，请重新输入"
+        fi
+    done
+    
+    # 收集数据库配置
+    read -p "请输入数据库类型 [sqlite/mysql/postgres，默认: sqlite]: " DB_TYPE
+    DB_TYPE=${DB_TYPE:-sqlite}
+    
+    if [[ "$DB_TYPE" != "sqlite" ]]; then
+        read -p "请输入数据库主机 [默认: localhost]: " DB_HOST
+        DB_HOST=${DB_HOST:-localhost}
+        
+        read -p "请输入数据库端口 [默认: 3306]: " DB_PORT
+        DB_PORT=${DB_PORT:-3306}
+        
+        read -p "请输入数据库名称: " DB_NAME
+        read -p "请输入数据库用户名: " DB_USER
+        read -s -p "请输入数据库密码: " DB_PASS
+        echo
+    fi
+    
+    print_success "配置收集完成"
+}
+
 # 下载和安装
 install_webpanel() {
-    print_status "下载Web Panel..."
+    print_status "下载Web Panel源码..."
+    
+    # 安装依赖
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y git golang-go nodejs npm
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y git golang nodejs npm
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y git golang nodejs npm
+    else
+        print_error "不支持的包管理器，请手动安装 git, golang, nodejs, npm"
+        exit 1
+    fi
     
     # 创建安装目录
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
     
-    # 下载最新版本
-    LATEST_URL="https://api.github.com/repos/boxpanel/web-panel/releases/latest"
-    DOWNLOAD_URL=$(curl -s "$LATEST_URL" | grep "browser_download_url.*${OS}_${ARCH}.tar.gz" | cut -d '"' -f 4)
+    # 克隆源码
+    print_status "克隆源码仓库..."
+    git clone "$REPO_URL" .
     
-    if [[ -z "$DOWNLOAD_URL" ]]; then
-        print_error "无法获取下载链接"
-        exit 1
-    fi
+    # 构建后端
+    print_status "构建Go后端..."
+    go mod tidy
+    go build -o web-panel cmd/main.go
     
-    print_status "下载地址: $DOWNLOAD_URL"
-    wget -O web-panel.tar.gz "$DOWNLOAD_URL"
-    
-    # 解压
-    tar -xzf web-panel.tar.gz
-    rm web-panel.tar.gz
+    # 构建前端
+    print_status "构建前端..."
+    cd client
+    npm install
+    npm run build
+    cd ..
     
     # 设置权限
     chmod +x web-panel
     chown -R "$USER:$USER" "$INSTALL_DIR"
     
-    print_success "Web Panel安装完成"
+    print_success "Web Panel构建完成"
 }
 
 # 创建配置文件
 create_config() {
     print_status "创建配置文件..."
     
-    cat > "$INSTALL_DIR/.env" << EOF
-PORT=8080
-JWT_SECRET=web-panel-$(openssl rand -hex 32)
+    # 生成JWT密钥
+    JWT_SECRET="web-panel-$(openssl rand -hex 32)"
+    
+    if [[ "$DB_TYPE" == "sqlite" ]]; then
+        cat > "$INSTALL_DIR/.env" << EOF
+PORT=$WEB_PORT
+JWT_SECRET=$JWT_SECRET
+DB_TYPE=sqlite
 DB_PATH=$INSTALL_DIR/data/database.sqlite
 UPLOAD_PATH=$INSTALL_DIR/uploads
 LOG_LEVEL=info
+ADMIN_USER=$ADMIN_USER
+ADMIN_PASS=$ADMIN_PASS
 EOF
+    else
+        cat > "$INSTALL_DIR/.env" << EOF
+PORT=$WEB_PORT
+JWT_SECRET=$JWT_SECRET
+DB_TYPE=$DB_TYPE
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
+DB_PASS=$DB_PASS
+UPLOAD_PATH=$INSTALL_DIR/uploads
+LOG_LEVEL=info
+ADMIN_USER=$ADMIN_USER
+ADMIN_PASS=$ADMIN_PASS
+EOF
+    fi
     
     # 创建必要目录
     mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/uploads"
@@ -221,8 +302,9 @@ show_info() {
     echo ""
     echo "🎉 Web Panel 安装完成！"
     echo ""
-    echo "📍 访问地址: http://$(hostname -I | awk '{print $1}'):8080"
-    echo "👤 默认账号: admin / admin123"
+    echo "📍 访问地址: http://$(hostname -I | awk '{print $1}'):$WEB_PORT"
+    echo "👤 管理员账号: $ADMIN_USER / $ADMIN_PASS"
+    echo "💾 数据库类型: $DB_TYPE"
     echo ""
     echo "🔧 管理命令:"
     echo "  启动服务: systemctl start $SERVICE_NAME"
@@ -243,6 +325,7 @@ main() {
     
     check_root
     check_system
+    collect_user_config
     install_dependencies
     create_user
     install_webpanel

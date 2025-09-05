@@ -138,6 +138,49 @@ build_frontend() {
     log_success "前端构建完成"
 }
 
+# 收集用户配置
+collect_user_config() {
+    log_info "配置Web Panel参数..."
+    
+    # 收集端口号
+    read -p "请输入Web Panel端口号 [默认: 8080]: " WEB_PORT
+    WEB_PORT=${WEB_PORT:-8080}
+    
+    # 收集管理员账号
+    read -p "请输入管理员用户名 [默认: admin]: " ADMIN_USER
+    ADMIN_USER=${ADMIN_USER:-admin}
+    
+    # 收集管理员密码
+    while true; do
+        read -s -p "请输入管理员密码: " ADMIN_PASS
+        echo
+        if [[ ${#ADMIN_PASS} -ge 6 ]]; then
+            break
+        else
+            log_error "密码长度至少6位，请重新输入"
+        fi
+    done
+    
+    # 收集数据库配置
+    read -p "请输入数据库类型 [sqlite/mysql/postgres，默认: sqlite]: " DB_TYPE
+    DB_TYPE=${DB_TYPE:-sqlite}
+    
+    if [[ "$DB_TYPE" != "sqlite" ]]; then
+        read -p "请输入数据库主机 [默认: localhost]: " DB_HOST
+        DB_HOST=${DB_HOST:-localhost}
+        
+        read -p "请输入数据库端口 [默认: 3306]: " DB_PORT
+        DB_PORT=${DB_PORT:-3306}
+        
+        read -p "请输入数据库名称: " DB_NAME
+        read -p "请输入数据库用户名: " DB_USER
+        read -s -p "请输入数据库密码: " DB_PASS
+        echo
+    fi
+    
+    log_success "配置收集完成"
+}
+
 # 初始化配置
 init_config() {
     log_info "初始化配置文件..."
@@ -145,26 +188,40 @@ init_config() {
     # 创建必要的目录
     mkdir -p data logs uploads
     
-    # 复制配置文件模板
-    if [[ ! -f ".env" ]]; then
-        if [[ -f ".env.example" ]]; then
-            cp .env.example .env
-            log_success "已创建配置文件: .env"
-        else
-            # 创建基本配置文件
-            cat > .env << EOF
+    # 生成JWT密钥
+    JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "your-secret-key-$(date +%s)")
+    
+    # 根据数据库类型生成配置
+    if [[ "$DB_TYPE" == "sqlite" ]]; then
+        cat > .env << EOF
 # Web Panel 配置文件
-PORT=8080
-JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "your-secret-key-$(date +%s)")
+PORT=$WEB_PORT
+JWT_SECRET=$JWT_SECRET
 DB_PATH=./data/database.sqlite
 UPLOAD_PATH=./uploads
 LOG_LEVEL=info
+ADMIN_USER=$ADMIN_USER
+ADMIN_PASS=$ADMIN_PASS
 EOF
-            log_success "已创建默认配置文件: .env"
-        fi
     else
-        log_info "配置文件已存在，跳过创建"
+        cat > .env << EOF
+# Web Panel 配置文件
+PORT=$WEB_PORT
+JWT_SECRET=$JWT_SECRET
+DB_TYPE=$DB_TYPE
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_NAME=$DB_NAME
+DB_USER=$DB_USER
+DB_PASS=$DB_PASS
+UPLOAD_PATH=./uploads
+LOG_LEVEL=info
+ADMIN_USER=$ADMIN_USER
+ADMIN_PASS=$ADMIN_PASS
+EOF
     fi
+    
+    log_success "已创建配置文件: .env"
     
     # 设置权限
     chmod 755 data logs uploads
@@ -234,7 +291,9 @@ start_service() {
     fi
     
     # 检查端口是否被占用
-    PORT=$(grep '^PORT=' .env 2>/dev/null | cut -d'=' -f2 || echo "8080")
+    PORT=$(grep '^PORT=' .env 2>/dev/null | cut -d'=' -f2 || echo "$WEB_PORT")
+    ADMIN_USER_DISPLAY=$(grep '^ADMIN_USER=' .env 2>/dev/null | cut -d'=' -f2 || echo "admin")
+    ADMIN_PASS_DISPLAY=$(grep '^ADMIN_PASS=' .env 2>/dev/null | cut -d'=' -f2 || echo "admin123")
     
     if command_exists netstat; then
         if netstat -tuln | grep -q ":$PORT "; then
@@ -244,8 +303,8 @@ start_service() {
     
     log_success "服务启动完成！"
     log_info "访问地址: http://localhost:$PORT"
-    log_info "默认账号: admin"
-    log_info "默认密码: admin123"
+    log_info "管理员账号: $ADMIN_USER_DISPLAY"
+    log_info "管理员密码: $ADMIN_PASS_DISPLAY"
     log_info ""
     log_info "按 Ctrl+C 停止服务"
     
@@ -321,6 +380,7 @@ main() {
     
     build_backend
     build_frontend
+    collect_user_config
     init_config
     
     if $CREATE_SERVICE; then
