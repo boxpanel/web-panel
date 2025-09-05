@@ -336,7 +336,13 @@ main() {
     check_system_resources
     
     echo -e "${YELLOW}即将开始安装，按Enter继续或Ctrl+C取消...${NC}"
-    read
+    # 检查是否为交互式终端
+    if [ -t 0 ]; then
+        read
+    else
+        echo -e "${BLUE}检测到非交互式环境，自动继续安装...${NC}"
+        sleep 2
+    fi
     
     # 执行安装步骤
     install_nodejs
