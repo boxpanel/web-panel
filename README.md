@@ -62,7 +62,7 @@
 
 - **Node.js** 16.0.0 or higher
 - **npm** 8.0.0 or higher
-- **Operating System**: Windows, Linux, or macOS
+- **Operating System**: Linux or macOS
 - **RAM**: At least 512MB available
 - **Disk Space**: 1GB free space
 
@@ -72,22 +72,10 @@
 
 **Linux/Mac:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install-online.sh | bash
-```
-
-**Windows (PowerShell):**
-```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/boxpanel/web-panel/main/install-online.ps1'))
+curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/web-panel/main/install.sh | bash
 ```
 
 #### Option 2: 📦 手动安装
-
-**Windows:**
-```cmd
-git clone https://github.com/boxpanel/web-panel.git
-cd web-panel
-install.bat
-```
 
 **Linux/macOS:**
 ```bash
@@ -130,11 +118,6 @@ chmod +x install.sh
 
 #### Development Mode
 
-**Windows:**
-```cmd
-dev.bat
-```
-
 **Linux/macOS:**
 ```bash
 chmod +x dev.sh
@@ -144,11 +127,6 @@ chmod +x dev.sh
 This starts both the backend server (port 3001) and frontend development server (port 3000).
 
 #### Production Mode
-
-**Windows:**
-```cmd
-start.bat
-```
 
 **Linux/macOS:**
 ```bash
@@ -175,17 +153,7 @@ Password: admin123
 
 ### 🗑️ Uninstalling the Application
 
-To completely remove the Web Panel from your system, use the provided uninstall scripts:
-
-**Windows (Command Prompt):**
-```cmd
-uninstall.bat
-```
-
-**Windows (PowerShell):**
-```powershell
-.\uninstall.ps1
-```
+To completely remove the Web Panel from your system, use the provided uninstall script:
 
 **Linux/macOS:**
 ```bash

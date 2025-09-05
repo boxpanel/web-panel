@@ -33,11 +33,6 @@ This guide covers different deployment scenarios for the Web Panel application.
 
 2. **Run the installation script:**
    
-   **Windows:**
-   ```cmd
-   install.bat
-   ```
-   
    **Linux/macOS:**
    ```bash
    chmod +x install.sh
@@ -45,11 +40,6 @@ This guide covers different deployment scenarios for the Web Panel application.
    ```
 
 3. **Start development mode:**
-   
-   **Windows:**
-   ```cmd
-   dev.bat
-   ```
    
    **Linux/macOS:**
    ```bash
