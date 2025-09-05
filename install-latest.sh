@@ -94,7 +94,7 @@ install_nodejs() {
     curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
     sudo apt-get install -y nodejs
     
-    # 配置npm以减少内存使用 (全局配置)
+    # 配置npm以减少内存使用
     npm config set fund false
     npm config set audit false
     npm config set progress false
@@ -125,27 +125,13 @@ create_directories() {
 download_project() {
     show_progress "下载项目文件"
     
-    # 检查是否已存在git仓库
-    if [ -d "$INSTALL_DIR/.git" ]; then
-        echo -e "${BLUE}更新现有项目...${NC}"
-        cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+    
+    # 使用浅克隆以节省带宽和存储
+    if [ -d ".git" ]; then
         sudo -u "$SERVICE_USER" git pull
     else
-        echo -e "${BLUE}克隆项目文件...${NC}"
-        # 如果目录存在且不为空，先完全删除再重建
-        if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
-            echo -e "${YELLOW}目录不为空，重新创建目录...${NC}"
-            sudo rm -rf "$INSTALL_DIR"
-        fi
-        
-        # 确保父目录存在
-        sudo mkdir -p "$(dirname "$INSTALL_DIR")"
-        
-        # 克隆到临时目录然后移动
-        TEMP_DIR="/tmp/web-panel-$(date +%s)"
-        sudo -u "$SERVICE_USER" git clone --depth 1 https://github.com/boxpanel/web-panel.git "$TEMP_DIR"
-        sudo mv "$TEMP_DIR" "$INSTALL_DIR"
-        sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+        sudo -u "$SERVICE_USER" git clone --depth 1 https://github.com/boxpanel/web-panel.git .
     fi
 }
 
@@ -364,13 +350,7 @@ main() {
     check_system_resources
     
     echo -e "${YELLOW}即将开始安装，按Enter继续或Ctrl+C取消...${NC}"
-    # 检查是否为交互式终端
-    if [ -t 0 ]; then
-        read
-    else
-        echo -e "${BLUE}检测到非交互式环境，自动继续安装...${NC}"
-        sleep 2
-    fi
+    read
     
     # 执行安装步骤
     install_nodejs
