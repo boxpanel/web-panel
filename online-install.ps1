@@ -10,7 +10,7 @@ param(
 )
 
 # 配置
-$RepoUrl = "https://github.com/your-username/web-panel"
+$RepoUrl = "https://github.com/boxpanel/web-panel"
 $ServiceUser = "NT AUTHORITY\LocalService"
 
 # 颜色输出函数
@@ -75,7 +75,7 @@ function Get-LatestRelease {
     Write-Status "获取最新版本信息..."
     
     try {
-        $apiUrl = "https://api.github.com/repos/your-username/web-panel/releases/latest"
+        $apiUrl = "https://api.github.com/repos/boxpanel/web-panel/releases/latest"
         $release = Invoke-RestMethod -Uri $apiUrl -Method Get
         
         $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }

@@ -6,7 +6,7 @@
 set -e
 
 # 配置
-REPO_URL="https://github.com/your-username/web-panel"
+REPO_URL="https://github.com/boxpanel/web-panel"
 INSTALL_DIR="/opt/web-panel"
 SERVICE_NAME="web-panel"
 USER="webpanel"
@@ -107,7 +107,7 @@ install_webpanel() {
     cd "$INSTALL_DIR"
     
     # 下载最新版本
-    LATEST_URL="https://api.github.com/repos/your-username/web-panel/releases/latest"
+    LATEST_URL="https://api.github.com/repos/boxpanel/web-panel/releases/latest"
     DOWNLOAD_URL=$(curl -s "$LATEST_URL" | grep "browser_download_url.*${OS}_${ARCH}.tar.gz" | cut -d '"' -f 4)
     
     if [[ -z "$DOWNLOAD_URL" ]]; then

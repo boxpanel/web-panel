@@ -65,7 +65,7 @@ iwr -useb https://raw.githubusercontent.com/your-username/web-panel/main/online-
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/web-panel.git
+git clone https://github.com/boxpanel/web-panel.git
 cd web-panel
 
 # 使用Docker Compose
@@ -80,7 +80,7 @@ docker run -d -p 8080:8080 -v ./data:/app/data web-panel
 
 1. **克隆项目**
 ```bash
-git clone https://github.com/your-username/web-panel.git
+git clone https://github.com/boxpanel/web-panel.git
 cd web-panel
 ```
 
@@ -261,7 +261,7 @@ web-panel/
 ### 开发环境搭建
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-username/web-panel.git
+git clone https://github.com/boxpanel/web-panel.git
 cd web-panel
 
 # 2. 安装依赖
@@ -324,8 +324,8 @@ go tool cover -html=coverage.out
 ## 🆘 支持
 
 - 📧 邮箱: support@example.com
-- 🐛 问题反馈: [GitHub Issues](https://github.com/your-username/web-panel/issues)
-- 📖 文档: [项目Wiki](https://github.com/your-username/web-panel/wiki)
+- 🐛 问题反馈: [GitHub Issues](https://github.com/boxpanel/web-panel/issues)
+- 📖 文档: [项目Wiki](https://github.com/boxpanel/web-panel/wiki)
 
 ## 🙏 致谢
 
