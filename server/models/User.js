@@ -1,15 +1,5 @@
 const bcrypt = require('bcryptjs');
-const fs = require('fs');
-const path = require('path');
-
-// 用户数据文件路径
-const USERS_FILE = path.join(__dirname, '../data/users.json');
-const DATA_DIR = path.join(__dirname, '../data');
-
-// 确保数据目录存在
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+const database = require('../utils/database');
 
 // 用户模型类
 class User {
@@ -56,175 +46,213 @@ class User {
     return this.role === role;
   }
 
-  // 静态方法：加载所有用户
-  static loadUsers() {
+  // 保存用户到数据库
+  async save() {
     try {
-      if (fs.existsSync(USERS_FILE)) {
-        const data = fs.readFileSync(USERS_FILE, 'utf8');
-        const usersData = JSON.parse(data);
-        return usersData.map(userData => new User(userData));
+      this.updatedAt = new Date();
+      if (this.id) {
+        // 更新现有用户
+        await database.run(
+          `UPDATE users SET username = ?, email = ?, password = ?, role = ?, 
+           status = ?, last_login = ?, updated_at = ? WHERE id = ?`,
+          [this.username, this.email, this.password, this.role, 
+           this.isActive ? 'active' : 'inactive', this.lastLogin, this.updatedAt, this.id]
+        );
+      } else {
+        // 创建新用户
+        this.createdAt = new Date();
+        const result = await database.run(
+          `INSERT INTO users (username, email, password, role, status, last_login, created_at, updated_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [this.username, this.email, this.password, this.role, 
+           this.isActive ? 'active' : 'inactive', this.lastLogin, this.createdAt, this.updatedAt]
+        );
+        this.id = result.id;
       }
-      return [];
-    } catch (error) {
-      console.error('加载用户数据失败:', error);
-      return [];
-    }
-  }
-
-  // 静态方法：保存所有用户
-  static saveUsers(users) {
-    try {
-      const usersData = users.map(user => ({
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        password: user.password,
-        role: user.role,
-        permissions: user.permissions,
-        isActive: user.isActive,
-        lastLogin: user.lastLogin,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
-      }));
-      
-      fs.writeFileSync(USERS_FILE, JSON.stringify(usersData, null, 2));
       return true;
     } catch (error) {
-      console.error('保存用户数据失败:', error);
+      console.error('保存用户失败:', error);
       return false;
     }
   }
 
   // 静态方法：根据用户名查找用户
-  static findByUsername(username) {
-    const users = this.loadUsers();
-    return users.find(user => user.username === username);
+  static async findByUsername(username) {
+    try {
+      const row = await database.get('SELECT * FROM users WHERE username = ?', [username]);
+      return row ? new User({
+        ...row,
+        isActive: row.status === 'active',
+        lastLogin: row.last_login ? new Date(row.last_login) : null,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      }) : null;
+    } catch (error) {
+      console.error('查找用户失败:', error);
+      return null;
+    }
   }
 
   // 静态方法：根据ID查找用户
-  static findById(id) {
-    const users = this.loadUsers();
-    return users.find(user => user.id === id);
+  static async findById(id) {
+    try {
+      const row = await database.get('SELECT * FROM users WHERE id = ?', [id]);
+      return row ? new User({
+        ...row,
+        isActive: row.status === 'active',
+        lastLogin: row.last_login ? new Date(row.last_login) : null,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      }) : null;
+    } catch (error) {
+      console.error('查找用户失败:', error);
+      return null;
+    }
   }
 
   // 静态方法：根据邮箱查找用户
-  static findByEmail(email) {
-    const users = this.loadUsers();
-    return users.find(user => user.email === email);
+  static async findByEmail(email) {
+    try {
+      const row = await database.get('SELECT * FROM users WHERE email = ?', [email]);
+      return row ? new User({
+        ...row,
+        isActive: row.status === 'active',
+        lastLogin: row.last_login ? new Date(row.last_login) : null,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      }) : null;
+    } catch (error) {
+      console.error('查找用户失败:', error);
+      return null;
+    }
   }
 
   // 静态方法：创建新用户
   static async create(userData) {
-    const users = this.loadUsers();
-    
-    // 检查用户名是否已存在
-    if (users.find(user => user.username === userData.username)) {
-      throw new Error('用户名已存在');
-    }
-    
-    // 检查邮箱是否已存在
-    if (userData.email && users.find(user => user.email === userData.email)) {
-      throw new Error('邮箱已存在');
-    }
-    
-    // 生成新的用户ID
-    const newId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
-    
-    // 加密密码
-    const hashedPassword = await bcrypt.hash(userData.password, 10);
-    
-    // 创建新用户
-    const newUser = new User({
-      id: newId,
-      username: userData.username,
-      email: userData.email,
-      password: hashedPassword,
-      role: userData.role || 'user',
-      permissions: userData.permissions || [],
-      isActive: userData.isActive !== undefined ? userData.isActive : true
-    });
-    
-    users.push(newUser);
-    
-    if (this.saveUsers(users)) {
-      return newUser;
-    } else {
-      throw new Error('创建用户失败');
+    try {
+      // 检查用户名是否已存在
+      const existingUser = await this.findByUsername(userData.username);
+      if (existingUser) {
+        throw new Error('用户名已存在');
+      }
+      
+      // 检查邮箱是否已存在
+      if (userData.email) {
+        const existingEmail = await this.findByEmail(userData.email);
+        if (existingEmail) {
+          throw new Error('邮箱已存在');
+        }
+      }
+      
+      // 加密密码
+      const hashedPassword = await bcrypt.hash(userData.password, 10);
+      
+      // 创建新用户
+      const newUser = new User({
+        username: userData.username,
+        email: userData.email,
+        password: hashedPassword,
+        role: userData.role || 'user',
+        permissions: userData.permissions || [],
+        isActive: userData.isActive !== undefined ? userData.isActive : true
+      });
+      
+      const success = await newUser.save();
+      
+      if (success) {
+        return newUser;
+      } else {
+        throw new Error('创建用户失败');
+      }
+    } catch (error) {
+      console.error('创建用户失败:', error);
+      throw error;
     }
   }
 
   // 静态方法：更新用户
   static async update(id, updateData) {
-    const users = this.loadUsers();
-    const userIndex = users.findIndex(user => user.id === id);
-    
-    if (userIndex === -1) {
-      throw new Error('用户不存在');
-    }
-    
-    const user = users[userIndex];
-    
-    // 检查用户名冲突
-    if (updateData.username && updateData.username !== user.username) {
-      if (users.find(u => u.username === updateData.username && u.id !== id)) {
-        throw new Error('用户名已存在');
+    try {
+      const user = await this.findById(id);
+      if (!user) {
+        throw new Error('用户不存在');
       }
-      user.username = updateData.username;
-    }
-    
-    // 检查邮箱冲突
-    if (updateData.email && updateData.email !== user.email) {
-      if (users.find(u => u.email === updateData.email && u.id !== id)) {
-        throw new Error('邮箱已存在');
+      
+      // 检查用户名冲突
+      if (updateData.username && updateData.username !== user.username) {
+        const existingUser = await this.findByUsername(updateData.username);
+        if (existingUser && existingUser.id !== id) {
+          throw new Error('用户名已存在');
+        }
       }
-      user.email = updateData.email;
-    }
-    
-    // 更新密码
-    if (updateData.password) {
-      user.password = await bcrypt.hash(updateData.password, 10);
-    }
-    
-    // 更新其他字段
-    if (updateData.role !== undefined) user.role = updateData.role;
-    if (updateData.permissions !== undefined) user.permissions = updateData.permissions;
-    if (updateData.isActive !== undefined) user.isActive = updateData.isActive;
-    
-    user.updatedAt = new Date();
-    
-    if (this.saveUsers(users)) {
-      return user;
-    } else {
-      throw new Error('更新用户失败');
+      
+      // 检查邮箱冲突
+      if (updateData.email && updateData.email !== user.email) {
+        const existingEmail = await this.findByEmail(updateData.email);
+        if (existingEmail && existingEmail.id !== id) {
+          throw new Error('邮箱已存在');
+        }
+      }
+      
+      // 更新用户数据
+      if (updateData.username !== undefined) user.username = updateData.username;
+      if (updateData.email !== undefined) user.email = updateData.email;
+      if (updateData.password) {
+        user.password = await bcrypt.hash(updateData.password, 10);
+      }
+      if (updateData.role !== undefined) user.role = updateData.role;
+      if (updateData.permissions !== undefined) user.permissions = updateData.permissions;
+      if (updateData.isActive !== undefined) user.isActive = updateData.isActive;
+      
+      const success = await user.save();
+      
+      if (success) {
+        return user;
+      } else {
+        throw new Error('更新用户失败');
+      }
+    } catch (error) {
+      console.error('更新用户失败:', error);
+      throw error;
     }
   }
 
   // 静态方法：删除用户
-  static delete(id) {
-    const users = this.loadUsers();
-    const userIndex = users.findIndex(user => user.id === id);
-    
-    if (userIndex === -1) {
-      throw new Error('用户不存在');
-    }
-    
-    users.splice(userIndex, 1);
-    
-    if (this.saveUsers(users)) {
+  static async delete(id) {
+    try {
+      const user = await this.findById(id);
+      if (!user) {
+        throw new Error('用户不存在');
+      }
+      
+      await database.run('DELETE FROM users WHERE id = ?', [id]);
       return true;
-    } else {
-      throw new Error('删除用户失败');
+    } catch (error) {
+      console.error('删除用户失败:', error);
+      throw error;
     }
   }
 
   // 静态方法：获取所有用户
-  static getAll() {
-    return this.loadUsers();
+  static async getAll() {
+    try {
+      const rows = await database.all('SELECT * FROM users ORDER BY created_at DESC');
+      return rows.map(row => new User({
+        ...row,
+        isActive: row.status === 'active',
+        lastLogin: row.last_login ? new Date(row.last_login) : null,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      }));
+    } catch (error) {
+      console.error('获取用户列表失败:', error);
+      return [];
+    }
   }
 
   // 静态方法：验证用户登录
   static async authenticate(username, password) {
-    const user = this.findByUsername(username);
+    const user = await this.findByUsername(username);
     
     if (!user) {
       throw new Error('用户不存在');
@@ -242,25 +270,18 @@ class User {
     
     // 更新最后登录时间
     user.updateLastLogin();
-    const users = this.loadUsers();
-    const userIndex = users.findIndex(u => u.id === user.id);
-    if (userIndex !== -1) {
-      users[userIndex] = user;
-      this.saveUsers(users);
-    }
+    await user.save();
     
     return user;
   }
 
   // 静态方法：初始化默认管理员用户
   static async initializeDefaultAdmin() {
-    const users = this.loadUsers();
-    
-    // 检查是否已有管理员用户
-    const adminExists = users.some(user => user.role === 'admin');
-    
-    if (!adminExists) {
-      try {
+    try {
+      const rows = await database.all('SELECT * FROM users WHERE role = ?', ['admin']);
+      
+      // 检查是否已有管理员用户
+      if (rows.length === 0) {
         await this.create({
           username: 'admin',
           email: 'admin@localhost',
@@ -269,28 +290,40 @@ class User {
           permissions: ['*'] // 所有权限
         });
         console.log('默认管理员用户已创建: admin/admin123');
-      } catch (error) {
-        console.error('创建默认管理员用户失败:', error);
       }
+    } catch (error) {
+      console.error('创建默认管理员用户失败:', error);
     }
   }
 
   // 静态方法：获取用户统计信息
-  static getStats() {
-    const users = this.loadUsers();
-    
-    return {
-      total: users.length,
-      active: users.filter(user => user.isActive).length,
-      inactive: users.filter(user => !user.isActive).length,
-      admins: users.filter(user => user.role === 'admin').length,
-      users: users.filter(user => user.role === 'user').length,
-      recentLogins: users.filter(user => {
-        if (!user.lastLogin) return false;
-        const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        return new Date(user.lastLogin) > dayAgo;
-      }).length
-    };
+  static async getStats() {
+    try {
+      const users = await this.getAll();
+      
+      return {
+        total: users.length,
+        active: users.filter(user => user.isActive).length,
+        inactive: users.filter(user => !user.isActive).length,
+        admins: users.filter(user => user.role === 'admin').length,
+        users: users.filter(user => user.role === 'user').length,
+        recentLogins: users.filter(user => {
+          if (!user.lastLogin) return false;
+          const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+          return new Date(user.lastLogin) > dayAgo;
+        }).length
+      };
+    } catch (error) {
+      console.error('获取用户统计信息失败:', error);
+      return {
+        total: 0,
+        active: 0,
+        inactive: 0,
+        admins: 0,
+        users: 0,
+        recentLogins: 0
+      };
+    }
   }
 }
 

@@ -173,6 +173,35 @@ Password: admin123
 
 **⚠️ Important: Change the default password immediately after first login!**
 
+### 🗑️ Uninstalling the Application
+
+To completely remove the Web Panel from your system, use the provided uninstall scripts:
+
+**Windows (Command Prompt):**
+```cmd
+uninstall.bat
+```
+
+**Windows (PowerShell):**
+```powershell
+.\uninstall.ps1
+```
+
+**Linux/macOS:**
+```bash
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+The uninstall process will:
+1. **Stop all running services** - Terminate Node.js processes
+2. **Clean dependencies** - Remove node_modules and package-lock.json files
+3. **Clear data files** - Delete user data and configuration files
+4. **Remove temporary files** - Clean logs and build artifacts
+5. **Delete project directory** - Complete removal (requires confirmation)
+
+**⚠️ Warning: This action is irreversible! Make sure to backup any important data before uninstalling.**
+
 ## 📖 Usage Guide
 
 ### First Time Setup

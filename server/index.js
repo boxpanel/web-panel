@@ -21,6 +21,7 @@ const userRoutes = require('./routes/users');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { authenticateToken } = require('./middleware/auth');
 const User = require('./models/User');
+const database = require('./utils/database');
 
 const app = express();
 const server = http.createServer(app);
@@ -34,11 +35,15 @@ const PORT = process.env.PORT || 3001;
 // Create necessary directories
 const uploadsDir = path.join(__dirname, '../uploads');
 const logsDir = path.join(__dirname, '../logs');
+const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
+}
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
 // Rate limiting
@@ -56,7 +61,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https:"],
     },
   },
@@ -133,9 +138,14 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Catch all handler for React Router
+// Catch all handler for React Router (only for non-API routes)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/build/index.html'));
+  // Only serve React app for non-API routes
+  if (!req.path.startsWith('/api/')) {
+    res.sendFile(path.join(__dirname, '../client/build/index.html'));
+  } else {
+    res.status(404).json({ error: 'API endpoint not found' });
+  }
 });
 
 // Error handling middleware
@@ -146,8 +156,18 @@ server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`WebSocket server running on port ${PORT}`);
   
-  // Initialize default admin user
-  await User.initializeDefaultAdmin();
+  try {
+    // Initialize database
+    await database.init();
+    console.log('Database initialized successfully');
+    
+    // Initialize default admin user
+    await User.initializeDefaultAdmin();
+    console.log('Default admin user initialized');
+  } catch (error) {
+    console.error('Initialization error:', error);
+    process.exit(1);
+  }
 });
 
 module.exports = app;

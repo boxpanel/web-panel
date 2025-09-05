@@ -58,6 +58,13 @@ function AppContent() {
 }
 
 function App() {
+  useEffect(() => {
+    // Remove initial loading screen when React app is ready
+    if (window.removeInitialLoading) {
+      window.removeInitialLoading();
+    }
+  }, []);
+
   return (
     <Router>
       <AuthProvider>

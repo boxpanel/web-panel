@@ -18,9 +18,6 @@ export const AuthProvider = ({ children }) => {
 
   // Configure axios defaults
   useEffect(() => {
-    // Set base URL for API requests
-    axios.defaults.baseURL = 'http://localhost:3001';
-    
     const token = localStorage.getItem('token');
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -30,21 +27,28 @@ export const AuthProvider = ({ children }) => {
   // Check if user is authenticated on app load
   useEffect(() => {
     const checkAuth = async () => {
+      console.log('AuthContext: Starting authentication check');
       const token = localStorage.getItem('token');
       if (token) {
+        console.log('AuthContext: Token found, verifying...');
         try {
           const response = await axios.get('/api/auth/verify');
+          console.log('AuthContext: Verification successful', response.data);
           setUser(response.data.user);
         } catch (error) {
-          console.error('Auth verification failed:', error);
+          console.error('AuthContext: Verification failed:', error);
           localStorage.removeItem('token');
           delete axios.defaults.headers.common['Authorization'];
         }
+      } else {
+        console.log('AuthContext: No token found');
       }
+      console.log('AuthContext: Setting loading to false');
       setLoading(false);
     };
 
-    checkAuth();
+    // Add a small delay to ensure DOM is ready
+    setTimeout(checkAuth, 100);
   }, []);
 
   const login = async (username, password) => {
