@@ -37,9 +37,25 @@ show_progress() {
     local step_name="$1"
     local percentage=$((CURRENT_STEP * 100 / TOTAL_STEPS))
     
+    # 生成进度条
+    local filled=$((percentage/2))
+    local empty=$((50-filled))
+    local filled_bar=""
+    local empty_bar=""
+    
+    # 生成填充部分
+    for ((i=0; i<filled; i++)); do
+        filled_bar+="="
+    done
+    
+    # 生成空白部分
+    for ((i=0; i<empty; i++)); do
+        empty_bar+="."
+    done
+    
     echo ""
     echo -e "${GREEN}[进度 $CURRENT_STEP/$TOTAL_STEPS - $percentage%]${NC} $step_name"
-    echo -e "${BLUE}${'='*$((percentage/2))}${NC}${YELLOW}${'.'*$((50-percentage/2))}${NC}"
+    echo -e "${BLUE}${filled_bar}${NC}${YELLOW}${empty_bar}${NC}"
     echo ""
 }
 
