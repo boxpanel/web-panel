@@ -64,18 +64,81 @@ check_system() {
     log_success "系统: $OS/$ARCH"
 }
 
+# 安装Go环境
+install_go() {
+    log_info "安装Go环境..."
+    
+    GO_VERSION="1.21.5"
+    GO_TAR="go${GO_VERSION}.${OS}-${ARCH}.tar.gz"
+    GO_URL="https://golang.org/dl/${GO_TAR}"
+    
+    # 使用中国镜像源
+    if [[ "$1" == "--china" ]]; then
+        GO_URL="https://golang.google.cn/dl/${GO_TAR}"
+    fi
+    
+    # 下载并安装Go
+    cd /tmp
+    log_info "下载Go ${GO_VERSION}..."
+    
+    if command -v wget >/dev/null 2>&1; then
+        wget -q "$GO_URL" || { log_error "下载失败"; exit 1; }
+    elif command -v curl >/dev/null 2>&1; then
+        curl -sL "$GO_URL" -o "$GO_TAR" || { log_error "下载失败"; exit 1; }
+    else
+        log_error "需要wget或curl来下载Go"
+        exit 1
+    fi
+    
+    # 移除旧版本并安装新版本
+    sudo rm -rf /usr/local/go
+    sudo tar -C /usr/local -xzf "$GO_TAR"
+    
+    # 设置环境变量
+    export PATH=/usr/local/go/bin:$PATH
+    
+    # 添加到profile
+    if ! grep -q "/usr/local/go/bin" ~/.bashrc 2>/dev/null; then
+        echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.bashrc
+    fi
+    
+    if ! grep -q "/usr/local/go/bin" ~/.profile 2>/dev/null; then
+        echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.profile
+    fi
+    
+    rm -f "$GO_TAR"
+    log_success "Go ${GO_VERSION} 安装完成"
+}
+
 # 检查Go环境
 check_go() {
     log_info "检查Go环境..."
     
-    if ! command -v go >/dev/null 2>&1; then
-        log_error "未找到Go环境，请先安装Go 1.19或更高版本"
+    # 检查Go是否存在且可执行
+    if command -v go >/dev/null 2>&1; then
+        # 测试Go是否能正常执行
+        if go version >/dev/null 2>&1; then
+            GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+            log_success "找到Go版本: $GO_VERSION"
+            return 0
+        else
+            log_warning "Go存在但无法执行，可能是架构不匹配"
+        fi
+    fi
+    
+    # Go不存在或无法执行，需要安装
+    log_info "需要安装Go环境"
+    install_go "$1"
+    
+    # 重新检查
+    if ! go version >/dev/null 2>&1; then
+        log_error "Go安装失败，请手动安装Go 1.19或更高版本"
         log_info "安装指南: https://golang.org/doc/install"
         exit 1
     fi
     
     GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-    log_success "找到Go版本: $GO_VERSION"
+    log_success "Go ${GO_VERSION} 已就绪"
 }
 
 # 创建用户（仅在需要时）
@@ -264,7 +327,7 @@ main() {
     echo "  数据库: $DB_TYPE"
     
     check_system
-    check_go
+    check_go "$1"
     create_user
     install_dependencies "$1"
     build_app
