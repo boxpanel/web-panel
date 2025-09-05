@@ -1,0 +1,31 @@
+{
+  "short_name": "Web Panel",
+  "name": "Web Panel - System Management",
+  "description": "提供Linux服务器系统监控、进程管理、文件管理等功能的Web管理面板",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1890ff",
+  "background_color": "#ffffff",
+  "orientation": "portrait-primary",
+  "categories": ["productivity", "utilities"],
+  "lang": "zh-CN",
+  "scope": "/",
+  "prefer_related_applications": false
+}
