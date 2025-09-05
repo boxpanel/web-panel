@@ -125,23 +125,27 @@ create_directories() {
 download_project() {
     show_progress "下载项目文件"
     
-    cd "$INSTALL_DIR"
-    
-    # 使用浅克隆以节省带宽和存储
-    if [ -d ".git" ]; then
+    # 检查是否已存在git仓库
+    if [ -d "$INSTALL_DIR/.git" ]; then
         echo -e "${BLUE}更新现有项目...${NC}"
+        cd "$INSTALL_DIR"
         sudo -u "$SERVICE_USER" git pull
     else
-        # 检查目录是否为空
-        if [ "$(ls -A . 2>/dev/null)" ]; then
-            echo -e "${YELLOW}目录不为空，清理现有文件...${NC}"
-            # 更彻底的清理方式
-            sudo find "$INSTALL_DIR" -mindepth 1 -delete 2>/dev/null || true
-            # 备用清理方式
-            sudo rm -rf "$INSTALL_DIR"/* "$INSTALL_DIR"/.[!.]* "$INSTALL_DIR"/..?* 2>/dev/null || true
-        fi
         echo -e "${BLUE}克隆项目文件...${NC}"
-        sudo -u "$SERVICE_USER" git clone --depth 1 https://github.com/boxpanel/web-panel.git .
+        # 如果目录存在且不为空，先完全删除再重建
+        if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+            echo -e "${YELLOW}目录不为空，重新创建目录...${NC}"
+            sudo rm -rf "$INSTALL_DIR"
+        fi
+        
+        # 确保父目录存在
+        sudo mkdir -p "$(dirname "$INSTALL_DIR")"
+        
+        # 克隆到临时目录然后移动
+        TEMP_DIR="/tmp/web-panel-$(date +%s)"
+        sudo -u "$SERVICE_USER" git clone --depth 1 https://github.com/boxpanel/web-panel.git "$TEMP_DIR"
+        sudo mv "$TEMP_DIR" "$INSTALL_DIR"
+        sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
     fi
 }
 
