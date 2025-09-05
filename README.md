@@ -68,7 +68,19 @@
 
 ### Installation
 
-#### Option 1: Automated Installation (Recommended)
+#### Option 1: 🌐 一键在线安装 (推荐)
+
+**Linux/Mac:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install-online.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/boxpanel/web-panel/main/install-online.ps1'))
+```
+
+#### Option 2: 📦 手动安装
 
 **Windows:**
 ```cmd
