@@ -135,7 +135,10 @@ download_project() {
         # 检查目录是否为空
         if [ "$(ls -A . 2>/dev/null)" ]; then
             echo -e "${YELLOW}目录不为空，清理现有文件...${NC}"
-            sudo -u "$SERVICE_USER" rm -rf * .[^.]* 2>/dev/null || true
+            # 更彻底的清理方式
+            sudo find "$INSTALL_DIR" -mindepth 1 -delete 2>/dev/null || true
+            # 备用清理方式
+            sudo rm -rf "$INSTALL_DIR"/* "$INSTALL_DIR"/.[!.]* "$INSTALL_DIR"/..?* 2>/dev/null || true
         fi
         echo -e "${BLUE}克隆项目文件...${NC}"
         sudo -u "$SERVICE_USER" git clone --depth 1 https://github.com/boxpanel/web-panel.git .
