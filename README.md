@@ -40,16 +40,31 @@
 
 ### 方式1: 一键安装脚本（推荐）
 
-#### Linux/macOS
+#### 自动安装（无需交互）
 ```bash
-# 本地安装
+# Linux/macOS 自动安装
+bash auto-install.sh
+
+# 使用中国镜像源
+bash auto-install.sh --china
+
+# Windows 自动安装
+auto-install.bat
+
+# Windows 使用中国镜像源
+auto-install.bat --china
+```
+
+#### 传统安装方式
+```bash
+# 本地安装（需要交互输入）
 bash install.sh
 
-# 或快速安装
+# 快速安装
 bash quick-install.sh
 
 # 在线安装
-curl -fsSL https://raw.githubusercontent.com/your-username/web-panel/main/online-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/online-install.sh | sudo bash
 ```
 
 
