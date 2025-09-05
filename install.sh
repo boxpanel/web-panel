@@ -151,7 +151,7 @@ download_project() {
 
 # 安装依赖
 install_dependencies() {
-    show_progress "安装项目依赖 (低配优化)"
+    show_progress "安装项目依赖"
     
     cd "$INSTALL_DIR"
     
