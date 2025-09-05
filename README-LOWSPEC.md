@@ -22,7 +22,7 @@
 
 ```bash
 # 下载并运行安装脚本
-wget https://raw.githubusercontent.com/your-repo/web-panel/main/install.sh
+wget https://raw.githubusercontent.com/boxpanel/web-panel/main/install.sh
 chmod +x install.sh
 sudo ./install.sh
 ```
@@ -45,11 +45,11 @@ npm --version
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-repo/web-panel.git
+git clone https://github.com/boxpanel/web-panel.git
 cd web-panel
 
 # 或下载压缩包
-wget https://github.com/your-repo/web-panel/archive/main.zip
+wget https://github.com/boxpanel/web-panel/archive/main.zip
 unzip main.zip
 cd web-panel-main
 ```
@@ -375,7 +375,7 @@ pm2 start ecosystem.config.js
 cp -r web-panel web-panel-backup
 
 # 下载新版本
-wget https://github.com/your-repo/web-panel/archive/main.zip
+wget https://github.com/boxpanel/web-panel/archive/main.zip
 unzip main.zip
 
 # 迁移配置和数据
@@ -394,7 +394,7 @@ pm2 restart web-panel
 
 如果您在使用过程中遇到问题，可以通过以下方式获取帮助：
 
-- **GitHub Issues**: https://github.com/your-repo/web-panel/issues
+- **GitHub Issues**: https://github.com/boxpanel/web-panel/issues
 - **文档**: https://docs.your-domain.com
 - **社区论坛**: https://community.your-domain.com
 

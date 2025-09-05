@@ -72,14 +72,14 @@
 
 **Linux/Mac:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/web-panel/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install.sh | bash
 ```
 
 #### Option 2: 📦 手动安装
 
 **Linux/macOS:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/web-panel.git
+git clone https://github.com/boxpanel/web-panel.git
 cd web-panel
 chmod +x install.sh
 ./install.sh
@@ -89,7 +89,7 @@ chmod +x install.sh
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/web-panel.git
+   git clone https://github.com/boxpanel/web-panel.git
    cd web-panel
    ```
 

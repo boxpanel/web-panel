@@ -98,7 +98,7 @@ module.exports = {
       user: 'node',
       host: 'your-server-ip',
       ref: 'origin/main',
-      repo: 'https://github.com/your-username/web-panel.git',
+      repo: 'https://github.com/boxpanel/web-panel.git',
       path: '/var/www/web-panel',
       'pre-deploy-local': '',
       'post-deploy': 'npm install --production && npm run build:client && pm2 reload ecosystem.lowspec.config.js --env production',

@@ -322,7 +322,7 @@ main() {
     # 检查root权限
     if [ "$EUID" -eq 0 ]; then
         echo -e "${RED}请不要使用root用户运行此脚本${NC}"
-        echo "请使用: curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install-lowspec.sh | bash"
+        echo "请使用: curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install.sh | bash"
         exit 1
     fi
     
