@@ -1,8 +1,8 @@
 {
   "name": "Web Panel - System Administration Dashboard",
   "description": "A comprehensive web-based system administration panel with modern UI and secure authentication",
-  "repository": "https://github.com/YOUR_USERNAME/web-panel",
-  "logo": "https://raw.githubusercontent.com/YOUR_USERNAME/web-panel/main/client/public/favicon.ico",
+  "repository": "https://github.com/boxpanel/web-panel",
+  "logo": "https://raw.githubusercontent.com/boxpanel/web-panel/main/client/public/favicon.ico",
   "keywords": [
     "web-panel",
     "system-administration",

@@ -37,7 +37,7 @@ module.exports = {
       user: 'deploy',
       host: ['your-server.com'],
       ref: 'origin/main',
-      repo: 'https://github.com/YOUR_USERNAME/web-panel.git',
+      repo: 'git@github.com:boxpanel/web-panel.git',
       path: '/var/www/web-panel',
       'pre-deploy-local': '',
       'post-deploy': 'npm install && cd client && npm install && npm run build && cd .. && pm2 reload ecosystem.config.js --env production',
