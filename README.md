@@ -52,14 +52,7 @@ bash quick-install.sh
 curl -fsSL https://raw.githubusercontent.com/your-username/web-panel/main/online-install.sh | sudo bash
 ```
 
-#### Windows
-```powershell
-# 本地安装
-.\install.ps1
 
-# 在线安装（管理员权限）
-iwr -useb https://raw.githubusercontent.com/your-username/web-panel/main/online-install.ps1 | iex
-```
 
 ### 方式2: Docker部署
 
