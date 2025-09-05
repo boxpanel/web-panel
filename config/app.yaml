@@ -1,0 +1,51 @@
+# Web Panel Go 版本配置文件
+system:
+  port: 3001
+  mode: development  # development, production
+  base_dir: .
+  upload_dir: .\uploads
+  log_dir: .\logs
+  data_dir: .\data
+  backup_dir: .\backup
+  
+database:
+  type: sqlite
+  path: .\data\database.sqlite
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 3600
+
+auth:
+  jwt_secret: your-secret-key-change-in-production
+  jwt_expire: 24h
+  bcrypt_cost: 12
+
+security:
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:3001"
+  rate_limit:
+    window: 15m
+    max_requests: 100
+  csrf_enabled: true
+  
+log:
+  level: info  # debug, info, warn, error
+  format: json  # json, text
+  output: file  # console, file, both
+  max_size: 100  # MB
+  max_backups: 10
+  max_age: 30  # days
+  compress: true
+
+monitoring:
+  metrics_enabled: true
+  health_check_interval: 30s
+  system_info_cache: 5s
+  
+websocket:
+  enabled: true
+  path: /ws
+  read_buffer_size: 1024
+  write_buffer_size: 1024
+  check_origin: false

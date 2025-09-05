@@ -1,522 +1,336 @@
-# Web Panel - System Administration Dashboard
+# Web Panel - Go版本
 
-<div align="center">
-  <h3>🖥️ A comprehensive web-based system administration panel</h3>
-  <p>Modern, secure, and user-friendly interface for server management</p>
-  
-  [![GitHub stars](https://img.shields.io/github/stars/boxpanel/web-panel?style=social)](https://github.com/boxpanel/web-panel/stargazers)
-   [![GitHub forks](https://img.shields.io/github/forks/boxpanel/web-panel?style=social)](https://github.com/boxpanel/web-panel/network/members)
-   [![GitHub issues](https://img.shields.io/github/issues/boxpanel/web-panel)](https://github.com/boxpanel/web-panel/issues)
-   [![GitHub license](https://img.shields.io/github/license/boxpanel/web-panel)](https://github.com/boxpanel/web-panel/blob/main/LICENSE)
-  
-  ## 🚀 One-Click Deploy
-  
-  [![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/boxpanel/web-panel)
-   [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/boxpanel/web-panel)
-   [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/boxpanel/web-panel)
-  
-</div>
+一个现代化的Web管理面板，使用Go语言重写，提供系统监控、文件管理、用户管理等功能。
 
-## ✨ Features
+## ✨ 特性
 
-### 🔐 Authentication & Security
-- **Secure Login System** - JWT-based authentication with bcrypt password hashing
-- **Role-Based Access Control** - Admin, User, and Guest roles with granular permissions
-- **Session Management** - Automatic token refresh and secure logout
-- **Rate Limiting** - Protection against brute force attacks
+- 🚀 **高性能**: 使用Go语言开发，性能优异
+- 🔒 **安全**: JWT认证，RBAC权限控制
+- 📊 **监控**: 实时系统监控和资源使用情况
+- 📁 **文件管理**: 完整的文件上传、下载、管理功能
+- 👥 **用户管理**: 多用户支持，角色权限管理
+- 🎨 **现代UI**: Vue.js前端，响应式设计
+- 🐳 **容器化**: 支持Docker部署
+- 📦 **一键安装**: 提供多种安装方式
 
-### 📊 System Monitoring
-- **Real-time System Stats** - CPU, Memory, Disk usage with live updates
-- **System Information** - Hardware details, OS info, network interfaces
-- **Performance Metrics** - Historical data and trend analysis
-- **WebSocket Integration** - Live data streaming without page refresh
+## 🛠️ 技术栈
 
-### 🔧 Process Management
-- **Process List** - View all running processes with detailed information
-- **Process Control** - Start, stop, and manage system processes
-- **Resource Monitoring** - CPU and memory usage per process
-- **Process Search & Filter** - Find processes quickly
+### 后端
+- **Go 1.19+**: 主要开发语言
+- **Gin**: Web框架
+- **GORM**: ORM框架
+- **SQLite**: 数据库（支持其他数据库）
+- **JWT**: 身份认证
+- **Logrus**: 日志管理
 
-### 📁 File Management
-- **File Browser** - Navigate through the file system
-- **File Operations** - Create, edit, delete, rename files and directories
-- **File Upload/Download** - Drag-and-drop file uploads
-- **Text Editor** - Built-in editor for configuration files
-- **Security** - Path traversal protection and file type validation
+### 前端
+- **Vue.js 3**: 前端框架
+- **Element Plus**: UI组件库
+- **Vite**: 构建工具
+- **Axios**: HTTP客户端
 
-### 👥 User Management
-- **User CRUD Operations** - Create, read, update, delete users
-- **Permission Management** - Assign roles and permissions
-- **User Statistics** - Track user activity and login history
-- **Bulk Operations** - Manage multiple users at once
+## 📋 系统要求
 
-### 🎨 Modern UI/UX
-- **Responsive Design** - Works on desktop, tablet, and mobile
-- **Dark/Light Theme** - Automatic theme switching
-- **Ant Design Components** - Professional and consistent UI
-- **Real-time Updates** - Live data without manual refresh
+- **Go**: 1.19或更高版本
+- **Node.js**: 16或更高版本（仅构建前端时需要）
+- **内存**: 最低512MB
+- **磁盘**: 最低100MB可用空间
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
-### Prerequisites
+### 方式1: 一键安装脚本（推荐）
 
-- **Node.js** 16.0.0 or higher
-- **npm** 8.0.0 or higher
-- **Operating System**: Linux or macOS
-- **RAM**: At least 512MB available
-- **Disk Space**: 1GB free space
-
-### Installation
-
-#### Option 1: 🌐 一键在线安装 (推荐)
-
-**Linux/Mac:**
+#### Linux/macOS
 ```bash
-curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install.sh | bash
+# 本地安装
+bash install.sh
+
+# 或快速安装
+bash quick-install.sh
+
+# 在线安装
+curl -fsSL https://raw.githubusercontent.com/your-username/web-panel/main/online-install.sh | sudo bash
 ```
 
-#### Option 2: 📦 手动安装
+#### Windows
+```powershell
+# 本地安装
+.\install.ps1
 
-**Linux/macOS:**
+# 在线安装（管理员权限）
+iwr -useb https://raw.githubusercontent.com/your-username/web-panel/main/online-install.ps1 | iex
+```
+
+### 方式2: Docker部署
+
 ```bash
-git clone https://github.com/boxpanel/web-panel.git
+# 克隆项目
+git clone https://github.com/your-username/web-panel.git
 cd web-panel
-chmod +x install.sh
-./install.sh
+
+# 使用Docker Compose
+docker-compose up -d
+
+# 或单独构建
+docker build -t web-panel .
+docker run -d -p 8080:8080 -v ./data:/app/data web-panel
 ```
 
-#### Option 2: Manual Installation
+### 方式3: 手动安装
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/boxpanel/web-panel.git
-   cd web-panel
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   npm install
-   cd client
-   npm install
-   cd ..
-   ```
-
-3. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env file with your configuration
-   ```
-
-4. **Build the client:**
-   ```bash
-   cd client
-   npm run build
-   cd ..
-   ```
-
-### Running the Application
-
-#### Development Mode
-
-**Linux/macOS:**
+1. **克隆项目**
 ```bash
-chmod +x dev.sh
-./dev.sh
+git clone https://github.com/your-username/web-panel.git
+cd web-panel
 ```
 
-This starts both the backend server (port 3001) and frontend development server (port 3000).
-
-#### Production Mode
-
-**Linux/macOS:**
+2. **安装Go依赖**
 ```bash
-chmod +x start.sh
-./start.sh
+go mod tidy
 ```
 
-This starts the production server on port 3001.
-
-### Access the Application
-
-- **Development**: http://localhost:3000
-- **Production**: http://localhost:3001
-- **API Endpoint**: http://localhost:3001/api
-
-### Default Credentials
-
-```
-Username: admin
-Password: admin123
-```
-
-**⚠️ Important: Change the default password immediately after first login!**
-
-### 🗑️ Uninstalling the Application
-
-To completely remove the Web Panel from your system, use the provided uninstall script:
-
-**Linux/macOS:**
+3. **构建前端**（可选）
 ```bash
-chmod +x uninstall.sh
-./uninstall.sh
+cd client
+npm install
+npm run build
+cd ..
 ```
 
-The uninstall process will:
-1. **Stop all running services** - Terminate Node.js processes
-2. **Clean dependencies** - Remove node_modules and package-lock.json files
-3. **Clear data files** - Delete user data and configuration files
-4. **Remove temporary files** - Clean logs and build artifacts
-5. **Delete project directory** - Complete removal (requires confirmation)
-
-**⚠️ Warning: This action is irreversible! Make sure to backup any important data before uninstalling.**
-
-## 📖 Usage Guide
-
-### First Time Setup
-
-1. **Login** with default credentials
-2. **Change Password** in user settings
-3. **Configure Environment** variables in `.env` file
-4. **Create Additional Users** if needed
-5. **Set Permissions** for different user roles
-
-### Dashboard Overview
-
-The main dashboard provides:
-- **System Overview** - Quick stats and health indicators
-- **Recent Activity** - Latest system events and user actions
-- **Quick Actions** - Common administrative tasks
-- **Alerts** - System warnings and notifications
-
-### System Monitoring
-
-- **CPU Usage** - Real-time CPU utilization with historical graphs
-- **Memory Usage** - RAM and swap usage with detailed breakdown
-- **Disk Usage** - Storage utilization for all mounted drives
-- **Network Activity** - Network interface statistics
-- **System Services** - Status of important system services
-
-### Process Management
-
-- **View Processes** - List all running processes with PID, CPU, memory usage
-- **Kill Processes** - Terminate processes (with appropriate permissions)
-- **Process Details** - Detailed information about specific processes
-- **Search & Filter** - Find processes by name, PID, or resource usage
-
-### File Management
-
-- **Navigate Directories** - Browse the file system with breadcrumb navigation
-- **File Operations** - Create, edit, delete, rename files and folders
-- **Upload Files** - Drag-and-drop or click to upload files
-- **Download Files** - Download individual files or folders as ZIP
-- **Edit Text Files** - Built-in editor with syntax highlighting
-
-### User Management (Admin Only)
-
-- **User List** - View all registered users
-- **Create Users** - Add new users with specific roles
-- **Edit Users** - Modify user information and permissions
-- **Delete Users** - Remove users from the system
-- **Role Management** - Assign and modify user roles
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-Edit the `.env` file to configure the application:
-
+4. **构建后端**
 ```bash
-# Server Configuration
-PORT=3001
-NODE_ENV=development
+# Linux/macOS
+CGO_ENABLED=0 go build -ldflags "-s -w" -o web-panel cmd/main.go
 
-# JWT Configuration
-JWT_SECRET=your-super-secret-jwt-key
-JWT_EXPIRES_IN=24h
-
-# Security Configuration
-BCRYPT_ROUNDS=12
-
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
-
-# File Upload Configuration
-MAX_FILE_SIZE=10485760
-UPLOAD_PATH=./uploads
-
-# CORS Configuration
-CORS_ORIGIN=http://localhost:3000
+# Windows
+set CGO_ENABLED=0
+go build -ldflags "-s -w" -o web-panel.exe cmd/main.go
 ```
 
-### Security Settings
+5. **创建配置文件**
+```bash
+cp .env.example .env
+# 编辑.env文件，修改相关配置
+```
 
-- **JWT_SECRET**: Use a strong, random secret key
-- **BCRYPT_ROUNDS**: Higher values = more secure but slower
-- **RATE_LIMIT_MAX_REQUESTS**: Adjust based on your needs
-- **CORS_ORIGIN**: Set to your domain in production
+6. **启动服务**
+```bash
+./web-panel        # Linux/macOS
+.\web-panel.exe    # Windows
+```
 
-### File Upload Settings
+## ⚙️ 配置说明
 
-- **MAX_FILE_SIZE**: Maximum file size in bytes (default: 10MB)
-- **UPLOAD_PATH**: Directory for uploaded files
-- **ALLOWED_FILE_EXTENSIONS**: Comma-separated list of allowed extensions
+主要配置文件为`.env`，包含以下配置项：
 
-## 🏗️ Architecture
+```env
+# 服务配置
+PORT=8080                                    # 服务端口
+HOST=0.0.0.0                               # 监听地址
 
-### Technology Stack
+# 安全配置
+JWT_SECRET=your-secret-key                  # JWT密钥
+JWT_EXPIRES_IN=24h                          # JWT过期时间
 
-**Frontend:**
-- **React 18** - Modern React with hooks
-- **Ant Design 5** - Professional UI component library
-- **Axios** - HTTP client for API calls
-- **React Router** - Client-side routing
-- **Recharts** - Data visualization
+# 数据库配置
+DB_PATH=./data/database.sqlite              # SQLite数据库路径
+# DB_TYPE=mysql                             # 数据库类型
+# DB_HOST=localhost                         # 数据库主机
+# DB_PORT=3306                              # 数据库端口
+# DB_NAME=webpanel                          # 数据库名称
+# DB_USER=root                              # 数据库用户
+# DB_PASSWORD=password                      # 数据库密码
 
-**Backend:**
-- **Node.js** - JavaScript runtime
-- **Express.js** - Web application framework
-- **JWT** - JSON Web Tokens for authentication
-- **bcryptjs** - Password hashing
-- **WebSocket** - Real-time communication
+# 文件上传配置
+UPLOAD_PATH=./uploads                       # 上传文件存储路径
+MAX_UPLOAD_SIZE=10485760                    # 最大上传文件大小(10MB)
 
-**Security:**
-- **Helmet** - Security headers
-- **CORS** - Cross-origin resource sharing
-- **Rate Limiting** - Request throttling
-- **Input Validation** - Data sanitization
+# 日志配置
+LOG_LEVEL=info                              # 日志级别
+LOG_PATH=./logs                             # 日志文件路径
 
-### Project Structure
+# 其他配置
+ENABLE_CORS=true                            # 是否启用CORS
+ENABLE_GZIP=true                            # 是否启用GZIP压缩
+```
 
+## 🔧 API文档
+
+### 认证相关
+- `POST /api/auth/login` - 用户登录
+- `POST /api/auth/logout` - 用户登出
+- `GET /api/auth/profile` - 获取用户信息
+- `PUT /api/auth/profile` - 更新用户信息
+
+### 用户管理
+- `GET /api/users` - 获取用户列表
+- `POST /api/users` - 创建用户
+- `PUT /api/users/:id` - 更新用户
+- `DELETE /api/users/:id` - 删除用户
+
+### 系统监控
+- `GET /api/system/overview` - 系统概览
+- `GET /api/system/stats` - 系统统计
+- `GET /api/system/processes` - 进程列表
+- `GET /api/system/logs` - 系统日志
+
+### 文件管理
+- `GET /api/files` - 获取文件列表
+- `POST /api/files/upload` - 上传文件
+- `GET /api/files/download/:id` - 下载文件
+- `DELETE /api/files/:id` - 删除文件
+
+## 🎯 使用说明
+
+### 默认账号
+- **用户名**: `admin`
+- **密码**: `admin123`
+
+### 功能模块
+
+1. **仪表板**: 系统概览和实时监控
+2. **用户管理**: 用户增删改查，角色权限管理
+3. **文件管理**: 文件上传下载，目录浏览
+4. **系统监控**: CPU、内存、磁盘使用情况
+5. **日志管理**: 系统日志查看和搜索
+6. **设置**: 系统配置和个人设置
+
+## 🔒 安全特性
+
+- JWT Token认证
+- 密码加密存储
+- RBAC权限控制
+- 请求频率限制
+- 文件类型验证
+- XSS防护
+- CSRF防护
+
+## 📊 性能优化
+
+- 静态文件缓存
+- GZIP压缩
+- 数据库连接池
+- 异步日志写入
+- 内存使用优化
+
+## 🐳 Docker部署
+
+### 基础部署
+```bash
+docker run -d \
+  --name web-panel \
+  -p 8080:8080 \
+  -v /path/to/data:/app/data \
+  -v /path/to/logs:/app/logs \
+  -v /path/to/uploads:/app/uploads \
+  web-panel:latest
+```
+
+### 使用Docker Compose
+```bash
+# 基础部署
+docker-compose up -d
+
+# 包含Nginx反向代理
+docker-compose --profile with-nginx up -d
+```
+
+## 🔧 开发指南
+
+### 项目结构
 ```
 web-panel/
-├── client/                 # Frontend React application
-│   ├── public/            # Static files
-│   ├── src/               # Source code
-│   │   ├── components/    # React components
-│   │   ├── contexts/      # React contexts
-│   │   └── ...           # Other frontend files
-│   └── package.json       # Frontend dependencies
-├── server/                # Backend Node.js application
-│   ├── middleware/        # Express middleware
-│   ├── models/           # Data models
-│   ├── routes/           # API routes
-│   ├── utils/            # Utility functions
-│   └── index.js          # Server entry point
-├── uploads/              # File upload directory
-├── logs/                 # Application logs
-├── data/                 # Application data
-├── .env                  # Environment variables
-├── .env.example          # Environment template
-├── package.json          # Root dependencies
-└── README.md            # This file
+├── cmd/                    # 应用入口
+│   └── main.go
+├── internal/               # 内部包
+│   ├── api/               # API路由和处理器
+│   ├── auth/              # 认证相关
+│   ├── config/            # 配置管理
+│   ├── database/          # 数据库操作
+│   ├── logger/            # 日志管理
+│   ├── middleware/        # 中间件
+│   ├── models/            # 数据模型
+│   └── services/          # 业务逻辑
+├── client/                # 前端代码
+├── config/                # 配置文件
+├── docs/                  # 文档
+├── scripts/               # 脚本文件
+└── deployments/           # 部署配置
 ```
 
-## 🔧 Development
-
-### Development Setup
-
-1. **Fork the repository**
-2. **Clone your fork**
-3. **Install dependencies**: `npm run install:all`
-4. **Start development servers**: `npm run dev`
-5. **Make your changes**
-6. **Test thoroughly**
-7. **Submit a pull request**
-
-### Available Scripts
-
+### 开发环境搭建
 ```bash
-# Install all dependencies
-npm run install:all
+# 1. 克隆项目
+git clone https://github.com/your-username/web-panel.git
+cd web-panel
 
-# Start development mode (both servers)
-npm run dev
+# 2. 安装依赖
+go mod tidy
 
-# Start production server
-npm start
+# 3. 启动开发服务器
+go run cmd/main.go
 
-# Build client for production
-npm run build
-
-# Start only backend server
-npm run server:dev
-
-# Start only frontend server
-npm run client:dev
-```
-
-### API Endpoints
-
-#### Authentication
-- `POST /api/auth/login` - User login
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/logout` - User logout
-- `GET /api/auth/verify` - Verify token
-- `GET /api/auth/profile` - Get user profile
-- `PUT /api/auth/profile` - Update user profile
-- `POST /api/auth/change-password` - Change password
-
-#### System Information
-- `GET /api/system/info` - Get system information
-- `GET /api/system/stats` - Get system statistics
-- `GET /api/system/services` - Get system services
-
-#### Process Management
-- `GET /api/process/list` - Get process list
-- `DELETE /api/process/:pid` - Kill process
-- `GET /api/process/:pid` - Get process details
-
-#### File Management
-- `GET /api/files/list` - List directory contents
-- `GET /api/files/read` - Read file content
-- `POST /api/files/write` - Write file content
-- `POST /api/files/upload` - Upload files
-- `GET /api/files/download` - Download files
-- `DELETE /api/files/delete` - Delete files/directories
-- `POST /api/files/create` - Create directory
-- `PUT /api/files/rename` - Rename file/directory
-
-#### User Management
-- `GET /api/users` - Get all users
-- `POST /api/users` - Create user
-- `GET /api/users/:id` - Get user by ID
-- `PUT /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user
-- `POST /api/users/:id/reset-password` - Reset user password
-
-## 🚀 Deployment
-
-For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
-
-### Quick Production Deployment
-
-1. **Prepare server** with Node.js and npm
-2. **Clone repository** and install dependencies
-3. **Configure environment** variables
-4. **Build application**: `npm run build`
-5. **Start with PM2**: `pm2 start ecosystem.config.js`
-6. **Setup reverse proxy** (Nginx/Apache)
-7. **Configure SSL** certificate
-
-## 🛡️ Security
-
-### Security Features
-
-- **Authentication** - JWT-based with secure password hashing
-- **Authorization** - Role-based access control
-- **Input Validation** - All inputs are validated and sanitized
-- **Rate Limiting** - Protection against brute force attacks
-- **CORS Protection** - Configurable cross-origin policies
-- **Security Headers** - Helmet.js for security headers
-- **File Upload Security** - Type validation and size limits
-- **Path Traversal Protection** - Prevents directory traversal attacks
-
-### Security Best Practices
-
-1. **Change default credentials** immediately
-2. **Use strong JWT secrets** (at least 32 characters)
-3. **Enable HTTPS** in production
-4. **Configure firewall** to restrict access
-5. **Regular security updates** for dependencies
-6. **Monitor access logs** for suspicious activity
-7. **Backup user data** regularly
-8. **Use environment variables** for sensitive data
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-#### Port Already in Use
-```bash
-# Find process using port 3001
-netstat -ano | findstr :3001  # Windows
-lsof -i :3001                 # Linux/macOS
-
-# Kill the process
-taskkill /PID <PID> /F        # Windows
-kill -9 <PID>                 # Linux/macOS
-```
-
-#### Permission Denied
-```bash
-# Fix file permissions (Linux/macOS)
-sudo chown -R $USER:$USER /path/to/web-panel
-chmod +x *.sh
-
-# Run as administrator (Windows)
-# Right-click and "Run as administrator"
-```
-
-#### Module Not Found
-```bash
-# Clear cache and reinstall
-rm -rf node_modules client/node_modules
-npm run install:all
-```
-
-#### Build Fails
-```bash
-# Clear build cache
+# 4. 前端开发（另开终端）
 cd client
-npm run build -- --verbose
-
-# Check for syntax errors
-npm run test
+npm install
+npm run dev
 ```
 
-### Getting Help
+### 代码规范
+- 使用`gofmt`格式化代码
+- 遵循Go官方编码规范
+- 添加必要的注释
+- 编写单元测试
 
-1. **Check the logs** in `logs/` directory
-2. **Review configuration** in `.env` file
-3. **Verify system requirements**
-4. **Check network connectivity**
-5. **Review error messages** carefully
-6. **Search existing issues** in the repository
-7. **Create a new issue** with detailed information
+## 🧪 测试
 
-## 📝 License
+```bash
+# 运行所有测试
+go test ./...
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+# 运行测试并显示覆盖率
+go test -cover ./...
 
-## 🤝 Contributing
+# 生成测试报告
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
 
-Contributions are welcome! Please read our contributing guidelines:
+## 📝 更新日志
 
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Commit your changes**: `git commit -m 'Add amazing feature'`
-4. **Push to the branch**: `git push origin feature/amazing-feature`
-5. **Open a Pull Request**
+### v2.0.0 (Go版本)
+- 🔄 完全重写为Go语言版本
+- ⚡ 性能大幅提升
+- 🛡️ 增强安全特性
+- 🐳 支持Docker部署
+- 📦 提供一键安装脚本
 
-### Development Guidelines
+### v1.x.x (Node.js版本)
+- 基于Node.js的原始版本
+- 已迁移至Go版本
 
-- Follow existing code style
-- Add tests for new features
-- Update documentation
-- Ensure all tests pass
-- Keep commits atomic and descriptive
+## 🤝 贡献指南
 
-## 📞 Support
+1. Fork本项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建Pull Request
 
-If you encounter any issues or have questions:
+## 📄 许可证
 
-- **Documentation**: Check this README and DEPLOYMENT.md
-- **Issues**: Create an issue in the repository
-- **Discussions**: Use GitHub Discussions for questions
-- **Security**: Report security issues privately
+本项目采用MIT许可证 - 查看[LICENSE](LICENSE)文件了解详情
 
-## 🙏 Acknowledgments
+## 🆘 支持
 
-- **Ant Design** - For the beautiful UI components
-- **React Team** - For the amazing frontend framework
-- **Express.js** - For the robust backend framework
-- **Node.js Community** - For the excellent ecosystem
-- **Contributors** - For making this project better
+- 📧 邮箱: support@example.com
+- 🐛 问题反馈: [GitHub Issues](https://github.com/your-username/web-panel/issues)
+- 📖 文档: [项目Wiki](https://github.com/your-username/web-panel/wiki)
+
+## 🙏 致谢
+
+感谢所有为这个项目做出贡献的开发者！
 
 ---
 
-<div align="center">
-  <p>Made with ❤️ by the Web Panel Team</p>
-  <p>⭐ Star this repository if you find it helpful!</p>
-</div>
+**Web Panel** - 让服务器管理变得简单高效！

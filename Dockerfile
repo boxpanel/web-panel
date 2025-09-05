@@ -1,55 +1,56 @@
-# Multi-stage build for production
-FROM node:18-alpine AS builder
+# 多阶段构建 - 构建阶段
+FROM golang:1.21-alpine AS builder
 
-# Set working directory
+# 安装必要的包
+RUN apk add --no-cache git ca-certificates tzdata
+
+# 设置工作目录
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY client/package*.json ./client/
+# 复制go mod文件
+COPY go.mod go.sum ./
 
-# Install dependencies
-RUN npm ci --only=production
-RUN cd client && npm ci --only=production
+# 下载依赖
+RUN go mod download
 
-# Copy source code
+# 复制源代码
 COPY . .
 
-# Build client
-RUN cd client && npm run build
+# 构建应用
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o web-panel cmd/main.go
 
-# Production stage
-FROM node:18-alpine AS production
+# 运行阶段
+FROM alpine:latest
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# 安装必要的包
+RUN apk --no-cache add ca-certificates tzdata
 
-# Create app user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
+# 创建非root用户
+RUN addgroup -g 1001 -S webpanel && \
+    adduser -S webpanel -u 1001 -G webpanel
 
-# Set working directory
+# 设置工作目录
 WORKDIR /app
 
-# Copy built application
-COPY --from=builder --chown=nodejs:nodejs /app/server ./server
-COPY --from=builder --chown=nodejs:nodejs /app/client/build ./client/build
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
+# 从构建阶段复制二进制文件
+COPY --from=builder /app/web-panel .
 
-# Create necessary directories
-RUN mkdir -p logs uploads data && chown -R nodejs:nodejs logs uploads data
+# 复制配置文件
+COPY --from=builder /app/config ./config
 
-# Switch to non-root user
-USER nodejs
+# 创建必要的目录
+RUN mkdir -p data logs uploads && \
+    chown -R webpanel:webpanel /app
 
-# Expose port
-EXPOSE 3001
+# 切换到非root用户
+USER webpanel
 
-# Health check
+# 暴露端口
+EXPOSE 8080
+
+# 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/health || exit 1
 
-# Start application
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "server/index.js"]
+# 启动应用
+CMD ["./web-panel"]
