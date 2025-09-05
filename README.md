@@ -3,6 +3,18 @@
 <div align="center">
   <h3>🖥️ A comprehensive web-based system administration panel</h3>
   <p>Modern, secure, and user-friendly interface for server management</p>
+  
+  [![GitHub stars](https://img.shields.io/github/stars/YOUR_USERNAME/web-panel?style=social)](https://github.com/YOUR_USERNAME/web-panel/stargazers)
+  [![GitHub forks](https://img.shields.io/github/forks/YOUR_USERNAME/web-panel?style=social)](https://github.com/YOUR_USERNAME/web-panel/network/members)
+  [![GitHub issues](https://img.shields.io/github/issues/YOUR_USERNAME/web-panel)](https://github.com/YOUR_USERNAME/web-panel/issues)
+  [![GitHub license](https://img.shields.io/github/license/YOUR_USERNAME/web-panel)](https://github.com/YOUR_USERNAME/web-panel/blob/main/LICENSE)
+  
+  ## 🚀 One-Click Deploy
+  
+  [![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/YOUR_USERNAME/web-panel)
+  [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YOUR_USERNAME/web-panel)
+  [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/YOUR_USERNAME/web-panel)
+  
 </div>
 
 ## ✨ Features
@@ -60,14 +72,14 @@
 
 **Windows:**
 ```cmd
-git clone <repository-url>
+git clone https://github.com/YOUR_USERNAME/web-panel.git
 cd web-panel
 install.bat
 ```
 
 **Linux/macOS:**
 ```bash
-git clone <repository-url>
+git clone https://github.com/YOUR_USERNAME/web-panel.git
 cd web-panel
 chmod +x install.sh
 ./install.sh
@@ -77,7 +89,7 @@ chmod +x install.sh
 
 1. **Clone the repository:**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/YOUR_USERNAME/web-panel.git
    cd web-panel
    ```
 
