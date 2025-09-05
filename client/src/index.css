@@ -1,0 +1,399 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  height: 100vh;
+}
+
+.ant-layout {
+  min-height: 100vh;
+}
+
+.ant-layout-content {
+  padding: 24px;
+  background: #f0f2f5;
+}
+
+.ant-card {
+  margin-bottom: 16px;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.error-container {
+  text-align: center;
+  padding: 50px;
+}
+
+.stat-card {
+  text-align: center;
+}
+
+.stat-card .ant-statistic-content {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.process-table .ant-table-tbody > tr:hover > td {
+  background: #e6f7ff;
+}
+
+.file-manager {
+  height: calc(100vh - 200px);
+}
+
+.file-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.breadcrumb-container {
+  margin-bottom: 16px;
+  padding: 8px 16px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+
+.upload-area {
+  border: 2px dashed #d9d9d9;
+  border-radius: 6px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.3s;
+}
+
+.upload-area:hover {
+  border-color: #1890ff;
+}
+
+.upload-area.dragover {
+  border-color: #1890ff;
+  background-color: #f0f8ff;
+}
+
+.system-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.chart-container {
+  height: 300px;
+  padding: 16px;
+}
+
+.realtime-stats {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 24px;
+}
+
+.realtime-stats .ant-statistic {
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .ant-layout-content {
+    padding: 12px;
+  }
+  
+  .system-info-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .realtime-stats {
+    flex-direction: column;
+    gap: 16px;
+  }
+}
+
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.login-form {
+  background: white;
+  padding: 40px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 400px;
+}
+
+.login-title {
+  text-align: center;
+  margin-bottom: 32px;
+  color: #1890ff;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.ant-form-item-label > label {
+  font-weight: 500;
+}
+
+.ant-btn-primary {
+  width: 100%;
+  height: 40px;
+  font-size: 16px;
+}
+
+.header-user {
+  color: white;
+  cursor: pointer;
+}
+
+.header-user:hover {
+  color: #40a9ff;
+}
+
+.sider-logo {
+  height: 32px;
+  margin: 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.ant-menu-dark .ant-menu-item-selected {
+  background-color: #1890ff;
+}
+
+.ant-menu-dark .ant-menu-item:hover {
+  background-color: rgba(24, 144, 255, 0.2);
+}
+
+.page-header {
+  background: white;
+  padding: 16px 24px;
+  margin-bottom: 24px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: 20px;
+  color: #262626;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-running {
+  background: #f6ffed;
+  color: #52c41a;
+  border: 1px solid #b7eb8f;
+}
+
+.status-stopped {
+  background: #fff2e8;
+  color: #fa8c16;
+  border: 1px solid #ffd591;
+}
+
+.status-error {
+  background: #fff1f0;
+  color: #ff4d4f;
+  border: 1px solid #ffccc7;
+}
+
+.progress-container {
+  margin: 16px 0;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #666;
+}
+
+.ant-progress-line {
+  margin-bottom: 8px;
+}
+
+.metric-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.metric-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.metric-value {
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.metric-label {
+  color: #666;
+  font-size: 14px;
+}
+
+.chart-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.chart-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #262626;
+}
+
+.table-container {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.table-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.search-input {
+  width: 300px;
+}
+
+@media (max-width: 576px) {
+  .search-input {
+    width: 100%;
+    margin-top: 8px;
+  }
+  
+  .table-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .action-buttons {
+    flex-wrap: wrap;
+  }
+}
+
+.notification-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+}
+
+.fade-enter {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.fade-enter-active {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 300ms, transform 300ms;
+}
+
+.fade-exit {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.fade-exit-active {
+  opacity: 0;
+  transform: translateX(100%);
+  transition: opacity 300ms, transform 300ms;
+}
+
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  color: #d9d9d9;
+}
+
+.empty-state-text {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.empty-state-description {
+  font-size: 14px;
+  color: #bfbfbf;
+}
