@@ -148,6 +148,10 @@ install_webpanel() {
     
     # 克隆源码
     print_status "克隆源码仓库..."
+    
+    # 配置Git安全目录
+    git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+    
     if [ -d ".git" ]; then
         print_status "检测到已存在的Git仓库，更新代码..."
         git fetch origin
