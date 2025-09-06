@@ -161,7 +161,17 @@ install_webpanel() {
     
     # 克隆源码
     print_status "克隆源码仓库..."
-    git clone "$REPO_URL" .
+    if [ -d ".git" ]; then
+        print_status "检测到已存在的Git仓库，更新代码..."
+        git fetch origin
+        git reset --hard origin/main
+    else
+        if [ "$(ls -A .)" ]; then
+            print_status "目录不为空，清理后重新克隆..."
+            rm -rf ./*
+        fi
+        git clone "$REPO_URL" .
+    fi
     
     # 构建后端
     print_status "构建Go后端..."
