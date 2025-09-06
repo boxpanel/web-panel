@@ -150,7 +150,19 @@ install_webpanel() {
     # 安装依赖
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update
-        apt-get install -y git golang-go nodejs npm
+        
+        # 先清理可能冲突的包
+        apt-get remove -y nodejs npm node-gyp node-mkdirp node-nopt node-which 2>/dev/null || true
+        apt-get autoremove -y 2>/dev/null || true
+        
+        # 安装基础依赖
+        apt-get install -y git golang-go curl
+        
+        # 使用NodeSource官方源安装Node.js（避免依赖冲突）
+        print_status "安装Node.js官方版本..."
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs
+        
     elif command -v yum >/dev/null 2>&1; then
         yum install -y git golang nodejs npm
     elif command -v dnf >/dev/null 2>&1; then

@@ -81,7 +81,12 @@ This guide covers different deployment scenarios for the Web Panel application.
    # Update system packages
    sudo apt update && sudo apt upgrade -y
    
-   # Install Node.js (Ubuntu/Debian)
+   # Install Node.js (Ubuntu/Debian) - 避免依赖冲突
+   # 先清理可能冲突的包
+   sudo apt-get remove -y nodejs npm node-gyp node-mkdirp node-nopt node-which 2>/dev/null || true
+   sudo apt-get autoremove -y 2>/dev/null || true
+   
+   # 使用NodeSource官方源安装
    curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
    sudo apt-get install -y nodejs
    
