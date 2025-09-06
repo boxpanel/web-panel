@@ -121,7 +121,7 @@ go mod tidy
 # 检查Go版本
 go version
 
-# 如果版本低于1.19，需要升级
+# 如果版本低于1.18.1，需要升级
 sudo rm -rf /usr/local/go
 wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
 sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz

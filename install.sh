@@ -136,18 +136,33 @@ install_dependencies() {
 check_install_go() {
     print_status "检查Go环境..."
     
-    local MIN_GO_VERSION="1.22.3"
+    local MIN_GO_VERSION="1.18.1"
     
     if command -v go >/dev/null 2>&1; then
         GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
         print_status "检测到Go版本: $GO_VERSION"
         
-        # 简单版本比较
-        if [[ "$GO_VERSION" < "$MIN_GO_VERSION" ]]; then
-            print_warning "Go版本过低，需要升级到 $MIN_GO_VERSION 或更高版本"
-            install_go "$MIN_GO_VERSION"
+        # 版本比较函数
+        version_compare() {
+            local version1=$1
+            local version2=$2
+            
+            # 将版本号转换为数字进行比较
+            local v1=$(echo $version1 | sed 's/[^0-9.]//g' | awk -F. '{printf "%d%03d%03d", $1, $2, $3}')
+            local v2=$(echo $version2 | sed 's/[^0-9.]//g' | awk -F. '{printf "%d%03d%03d", $1, $2, $3}')
+            
+            if [ "$v1" -lt "$v2" ]; then
+                return 1  # version1 < version2
+            else
+                return 0  # version1 >= version2
+            fi
+        }
+        
+        if version_compare "$GO_VERSION" "$MIN_GO_VERSION"; then
+            print_success "Go版本满足要求: $GO_VERSION"
         else
-            print_success "Go版本满足要求"
+            print_warning "Go版本过低，需要升级到 $MIN_GO_VERSION 或更高版本，当前版本: $GO_VERSION"
+            install_go "$MIN_GO_VERSION"
         fi
     else
         print_status "未检测到Go，开始安装..."
