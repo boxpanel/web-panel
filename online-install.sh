@@ -151,6 +151,8 @@ install_webpanel() {
     
     # 配置Git安全目录
     git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
+    git config --global --add safe.directory "/opt/web-panel" 2>/dev/null || true
+    git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
     
     if [ -d ".git" ]; then
         print_status "检测到已存在的Git仓库，更新代码..."
