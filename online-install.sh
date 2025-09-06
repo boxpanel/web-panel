@@ -43,11 +43,158 @@ check_root() {
     fi
 }
 
-# 检查系统
+# 检查系统环境
 check_system() {
     print_status "检查系统环境..."
     
     # 检查操作系统
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        OS=$NAME
+        VER=$VERSION_ID
+        print_status "检测到系统: $OS $VER"
+    else
+        print_error "无法检测操作系统版本"
+        exit 1
+    fi
+    
+    # 检查架构
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64)
+            ARCH="amd64"
+            ;;
+        aarch64)
+            ARCH="arm64"
+            ;;
+        armv7l)
+            ARCH="armv7"
+            ;;
+        *)
+            print_error "不支持的系统架构: $ARCH"
+            exit 1
+            ;;
+    esac
+    print_status "系统架构: $ARCH"
+    
+    # 检查内存
+    MEMORY=$(free -m | awk 'NR==2{printf "%.0f", $2/1024}')
+    if [ "$MEMORY" -lt 1 ]; then
+        print_warning "系统内存不足1GB，可能影响运行性能"
+    fi
+    print_status "可用内存: ${MEMORY}GB"
+    
+    # 检查磁盘空间
+    DISK_SPACE=$(df -BG "$INSTALL_DIR" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//' || echo "10")
+    if [ "$DISK_SPACE" -lt 2 ]; then
+        print_warning "磁盘空间不足2GB，可能影响安装"
+    fi
+    print_status "可用磁盘空间: ${DISK_SPACE}GB"
+}
+
+# 安装系统依赖
+install_dependencies() {
+    print_status "检查和安装系统依赖..."
+    
+    # 检查必要命令
+    local missing_deps=()
+    
+    for cmd in curl wget git; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing_deps+=("$cmd")
+        fi
+    done
+    
+    if [ ${#missing_deps[@]} -eq 0 ]; then
+        print_success "所有必要依赖已安装"
+        return
+    fi
+    
+    print_status "安装缺失的依赖: ${missing_deps[*]}"
+    
+    if command -v apt-get >/dev/null 2>&1; then
+        # Debian/Ubuntu
+        apt-get update
+        apt-get install -y "${missing_deps[@]}" build-essential
+    elif command -v yum >/dev/null 2>&1; then
+        # CentOS/RHEL
+        yum update -y
+        yum install -y "${missing_deps[@]}" gcc gcc-c++ make
+    elif command -v dnf >/dev/null 2>&1; then
+        # Fedora
+        dnf update -y
+        dnf install -y "${missing_deps[@]}" gcc gcc-c++ make
+    else
+        print_error "不支持的包管理器，请手动安装: ${missing_deps[*]}"
+        exit 1
+    fi
+    
+    print_success "系统依赖安装完成"
+}
+
+# 检查和安装Go
+check_install_go() {
+    print_status "检查Go环境..."
+    
+    local MIN_GO_VERSION="1.22.3"
+    
+    if command -v go >/dev/null 2>&1; then
+        GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+        print_status "检测到Go版本: $GO_VERSION"
+        
+        # 简单版本比较
+        if [[ "$GO_VERSION" < "$MIN_GO_VERSION" ]]; then
+            print_warning "Go版本过低，需要升级到 $MIN_GO_VERSION 或更高版本"
+            install_go "$MIN_GO_VERSION"
+        else
+            print_success "Go版本满足要求"
+        fi
+    else
+        print_status "未检测到Go，开始安装..."
+        install_go "$MIN_GO_VERSION"
+    fi
+}
+
+# 安装Go
+install_go() {
+    local go_version="$1"
+    print_status "安装Go $go_version..."
+    
+    # 下载Go
+    local GO_TAR="go${go_version}.linux-${ARCH}.tar.gz"
+    local GO_URL="https://golang.org/dl/${GO_TAR}"
+    
+    cd /tmp
+    wget -O "$GO_TAR" "$GO_URL" || {
+        print_error "下载Go失败"
+        exit 1
+    }
+    
+    # 安装Go
+    rm -rf /usr/local/go
+    tar -C /usr/local -xzf "$GO_TAR"
+    
+    # 设置环境变量
+    if ! grep -q "/usr/local/go/bin" /etc/profile; then
+        echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+    fi
+    
+    export PATH=$PATH:/usr/local/go/bin
+    
+    # 验证安装
+    if command -v go >/dev/null 2>&1; then
+        print_success "Go安装成功: $(go version)"
+    else
+        print_error "Go安装失败"
+        exit 1
+    fi
+    
+    # 清理
+    rm -f "/tmp/$GO_TAR"
+}
+
+# 继续原有的系统检查
+check_legacy_system() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         OS="linux"
     elif [[ "$OSTYPE" == "darwin"* ]]; then
