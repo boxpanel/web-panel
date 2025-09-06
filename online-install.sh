@@ -170,6 +170,8 @@ install_webpanel() {
     
     # 构建后端
     print_status "构建Go后端..."
+    # 确保在项目根目录
+    cd "$INSTALL_DIR"
     go mod tidy
     go build -o web-panel cmd/main.go
     
