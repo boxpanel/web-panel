@@ -291,16 +291,16 @@ collect_user_config() {
 install_webpanel() {
     print_status "下载Web Panel源码..."
     
-    # 安装依赖
+    # 安装Git依赖
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update
-        apt-get install -y git golang-go
+        apt-get install -y git
     elif command -v yum >/dev/null 2>&1; then
-        yum install -y git golang
+        yum install -y git
     elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y git golang
+        dnf install -y git
     else
-        print_error "不支持的包管理器，请手动安装 git, golang"
+        print_error "不支持的包管理器，请手动安装 git"
         exit 1
     fi
     
@@ -468,6 +468,7 @@ main() {
     check_system
     collect_user_config
     install_dependencies
+    check_install_go
     setup_user
     install_webpanel
     create_config
