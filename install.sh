@@ -55,20 +55,7 @@ check_go() {
     fi
 }
 
-# 检查Node.js环境（用于前端构建）
-check_node() {
-    log_info "检查Node.js环境..."
-    
-    if ! command_exists node; then
-        log_warning "未找到Node.js环境，将跳过前端构建"
-        log_info "如需完整功能，请安装Node.js 16或更高版本"
-        return 1
-    fi
-    
-    NODE_VERSION=$(node --version | sed 's/v//')
-    log_success "找到Node.js版本: $NODE_VERSION"
-    return 0
-}
+# 注意：此脚本专注于Go后端构建，不包含Node.js环境检查
 
 # 安装Go依赖
 install_go_deps() {
@@ -110,32 +97,11 @@ build_backend() {
     fi
 }
 
-# 构建前端
+# 前端构建已移除 - 此脚本专注于Go后端
+# 如需前端功能，请手动构建client目录或使用完整版安装脚本
 build_frontend() {
-    if ! check_node; then
-        log_warning "跳过前端构建"
-        return 0
-    fi
-    
-    log_info "构建前端..."
-    
-    cd client
-    
-    # 安装前端依赖
-    if command_exists npm; then
-        npm install
-        npm run build
-    elif command_exists yarn; then
-        yarn install
-        yarn build
-    else
-        log_error "未找到npm或yarn"
-        cd ..
-        return 1
-    fi
-    
-    cd ..
-    log_success "前端构建完成"
+    log_info "跳过前端构建 - 此脚本专注于Go后端"
+    log_info "如需前端功能，请手动执行: cd client && npm install && npm run build"
 }
 
 # 收集用户配置

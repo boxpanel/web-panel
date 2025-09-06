@@ -57,15 +57,17 @@ auto-install.bat --china
 
 #### 传统安装方式
 ```bash
-# 本地安装（需要交互输入）
+# 本地安装（Go后端专用，需要交互输入）
 bash install.sh
 
-# 快速安装
+# 快速安装（Go后端专用）
 bash quick-install.sh
 
-# 在线安装
+# 在线安装（Go后端专用）
 curl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/online-install.sh | sudo bash
 ```
+
+**注意**：以上脚本专注于Go后端构建，不包含前端构建。如需完整功能，请手动构建前端或使用Docker部署。
 
 
 
@@ -97,13 +99,15 @@ cd web-panel
 go mod tidy
 ```
 
-3. **构建前端**（可选）
+3. **构建前端**（手动）
 ```bash
 cd client
 npm install
 npm run build
 cd ..
 ```
+
+**说明**：安装脚本已简化为仅构建Go后端，前端需要手动构建。
 
 4. **构建后端**
 ```bash

@@ -150,25 +150,13 @@ install_webpanel() {
     # 安装依赖
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update
-        
-        # 先清理可能冲突的包
-        apt-get remove -y nodejs npm node-gyp node-mkdirp node-nopt node-which 2>/dev/null || true
-        apt-get autoremove -y 2>/dev/null || true
-        
-        # 安装基础依赖
-        apt-get install -y git golang-go curl
-        
-        # 使用NodeSource官方源安装Node.js（避免依赖冲突）
-        print_status "安装Node.js官方版本..."
-        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-        apt-get install -y nodejs
-        
+        apt-get install -y git golang-go
     elif command -v yum >/dev/null 2>&1; then
-        yum install -y git golang nodejs npm
+        yum install -y git golang
     elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y git golang nodejs npm
+        dnf install -y git golang
     else
-        print_error "不支持的包管理器，请手动安装 git, golang, nodejs, npm"
+        print_error "不支持的包管理器，请手动安装 git, golang"
         exit 1
     fi
     
@@ -187,12 +175,8 @@ install_webpanel() {
     go mod tidy
     go build -o web-panel cmd/main.go
     
-    # 构建前端
-    print_status "构建前端..."
-    cd client
-    npm install
-    npm run build
-    cd ..
+    # 注意：此脚本专注于Go后端构建，不包含前端构建
+    # 如需前端功能，请手动构建或使用完整版安装脚本
     
     # 设置权限
     chmod +x web-panel
