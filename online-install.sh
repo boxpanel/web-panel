@@ -86,16 +86,11 @@ install_dependencies() {
     fi
 }
 
-# 创建用户
-create_user() {
-    print_status "创建系统用户..."
-    
-    if ! id "$USER" >/dev/null 2>&1; then
-        useradd -r -s /bin/false -d "$INSTALL_DIR" "$USER"
-        print_success "已创建用户: $USER"
-    else
-        print_status "用户已存在: $USER"
-    fi
+# 使用当前用户（不创建系统用户）
+setup_user() {
+    print_status "使用当前用户运行服务..."
+    USER=$(whoami)
+    print_success "将使用用户: $USER"
 }
 
 # 用户配置收集
@@ -180,7 +175,7 @@ install_webpanel() {
     
     # 设置权限
     chmod +x web-panel
-    chown -R "$USER:$USER" "$INSTALL_DIR"
+    # 使用当前用户，无需chown
     
     print_success "Web Panel构建完成"
 }
@@ -222,7 +217,7 @@ EOF
     
     # 创建必要目录
     mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/uploads"
-    chown -R "$USER:$USER" "$INSTALL_DIR"
+    # 使用当前用户，无需chown
     
     print_success "配置文件已创建"
 }
@@ -239,7 +234,6 @@ After=network.target
 [Service]
 Type=simple
 User=$USER
-Group=$USER
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/web-panel
 Restart=always
@@ -325,7 +319,7 @@ main() {
     check_system
     collect_user_config
     install_dependencies
-    create_user
+    setup_user
     install_webpanel
     create_config
     create_service

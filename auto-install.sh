@@ -143,18 +143,11 @@ check_go() {
     log_success "Go ${GO_VERSION} 已就绪"
 }
 
-# 创建用户（仅在需要时）
-create_user() {
-    if [[ "$EUID" -eq 0 ]] && [[ "$OS" == "linux" ]]; then
-        log_info "创建系统用户..."
-        
-        if ! id "$USER_NAME" >/dev/null 2>&1; then
-            useradd -r -s /bin/false -d "$INSTALL_DIR" "$USER_NAME" 2>/dev/null || true
-            log_success "已创建用户: $USER_NAME"
-        else
-            log_info "用户已存在: $USER_NAME"
-        fi
-    fi
+# 使用当前用户（不创建系统用户）
+setup_user() {
+    log_info "使用当前用户运行服务..."
+    USER_NAME=$(whoami)
+    log_success "将使用用户: $USER_NAME"
 }
 
 # 安装依赖
@@ -247,7 +240,6 @@ After=network.target
 [Service]
 Type=simple
 User=$USER_NAME
-Group=$USER_NAME
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/web-panel
 Restart=always
@@ -258,10 +250,7 @@ EnvironmentFile=$INSTALL_DIR/.env
 WantedBy=multi-user.target
 EOF
         
-        # 设置权限
-        if id "$USER_NAME" >/dev/null 2>&1; then
-            chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR" 2>/dev/null || true
-        fi
+        # 使用当前用户，无需设置权限
         
         # 重载systemd
         systemctl daemon-reload
@@ -351,11 +340,9 @@ install_files() {
     cp .env "$INSTALL_DIR/"
     
     # 设置目录权限
-    if [[ "$EUID" -eq 0 ]] && [[ "$OS" == "linux" ]]; then
-        chown -R "$USER_NAME:$USER_NAME" "$INSTALL_DIR" "$DATA_DIR" "$BACKUP_DIR"
-        chmod 755 "$INSTALL_DIR"
-        chmod 755 "$DATA_DIR" "$BACKUP_DIR"
-    fi
+    chmod 755 "$INSTALL_DIR" 2>/dev/null || true
+    chmod 755 "$DATA_DIR" "$BACKUP_DIR" 2>/dev/null || true
+    # 使用当前用户，无需chown
     
     log_success "文件安装完成"
 }
@@ -377,7 +364,7 @@ main() {
     
     check_system
     check_go "$1"
-    create_user
+    setup_user
     install_dependencies "$1"
     build_app
     setup_config
