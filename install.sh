@@ -127,22 +127,9 @@ collect_user_config() {
         fi
     done
     
-    # 收集数据库配置
-    read -p "请输入数据库类型 [sqlite/mysql/postgres，默认: sqlite]: " DB_TYPE
-    DB_TYPE=${DB_TYPE:-sqlite}
-    
-    if [[ "$DB_TYPE" != "sqlite" ]]; then
-        read -p "请输入数据库主机 [默认: localhost]: " DB_HOST
-        DB_HOST=${DB_HOST:-localhost}
-        
-        read -p "请输入数据库端口 [默认: 3306]: " DB_PORT
-        DB_PORT=${DB_PORT:-3306}
-        
-        read -p "请输入数据库名称: " DB_NAME
-        read -p "请输入数据库用户名: " DB_USER
-        read -s -p "请输入数据库密码: " DB_PASS
-        echo
-    fi
+    # 使用SQLite数据库（无需额外配置）
+    DB_TYPE="sqlite"
+    log_info "数据库类型: SQLite (./data/database.sqlite)"
     
     log_success "配置收集完成"
 }
@@ -157,9 +144,8 @@ init_config() {
     # 生成JWT密钥
     JWT_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "your-secret-key-$(date +%s)")
     
-    # 根据数据库类型生成配置
-    if [[ "$DB_TYPE" == "sqlite" ]]; then
-        cat > .env << EOF
+    # 生成SQLite配置文件
+    cat > .env << EOF
 # Web Panel 配置文件
 PORT=$WEB_PORT
 JWT_SECRET=$JWT_SECRET
@@ -169,23 +155,6 @@ LOG_LEVEL=info
 ADMIN_USER=$ADMIN_USER
 ADMIN_PASS=$ADMIN_PASS
 EOF
-    else
-        cat > .env << EOF
-# Web Panel 配置文件
-PORT=$WEB_PORT
-JWT_SECRET=$JWT_SECRET
-DB_TYPE=$DB_TYPE
-DB_HOST=$DB_HOST
-DB_PORT=$DB_PORT
-DB_NAME=$DB_NAME
-DB_USER=$DB_USER
-DB_PASS=$DB_PASS
-UPLOAD_PATH=./uploads
-LOG_LEVEL=info
-ADMIN_USER=$ADMIN_USER
-ADMIN_PASS=$ADMIN_PASS
-EOF
-    fi
     
     log_success "已创建配置文件: .env"
     

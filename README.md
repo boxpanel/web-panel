@@ -144,14 +144,8 @@ HOST=0.0.0.0                               # 监听地址
 JWT_SECRET=your-secret-key                  # JWT密钥
 JWT_EXPIRES_IN=24h                          # JWT过期时间
 
-# 数据库配置
+# 数据库配置（使用SQLite）
 DB_PATH=./data/database.sqlite              # SQLite数据库路径
-# DB_TYPE=mysql                             # 数据库类型
-# DB_HOST=localhost                         # 数据库主机
-# DB_PORT=3306                              # 数据库端口
-# DB_NAME=webpanel                          # 数据库名称
-# DB_USER=root                              # 数据库用户
-# DB_PASSWORD=password                      # 数据库密码
 
 # 文件上传配置
 UPLOAD_PATH=./uploads                       # 上传文件存储路径

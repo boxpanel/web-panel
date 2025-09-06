@@ -220,12 +220,10 @@ ls -la data/database.sqlite
 mkdir -p data logs uploads
 chmod 755 data logs uploads
 
-# 如果使用MySQL/PostgreSQL，检查连接
-# MySQL
-mysql -h localhost -u username -p database_name
-
-# PostgreSQL
-psql -h localhost -U username -d database_name
+# 检查SQLite数据库文件是否存在
+if [ ! -f "data/database.sqlite" ]; then
+    echo "数据库文件不存在，程序启动时会自动创建"
+fi
 ```
 
 ## 获取帮助
