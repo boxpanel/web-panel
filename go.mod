@@ -1,6 +1,6 @@
 module web-panel-go
 
-go 1.21
+go 1.18
 
 require (
 	github.com/gin-contrib/cors v1.5.0
