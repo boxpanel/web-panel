@@ -136,7 +136,7 @@ install_dependencies() {
 check_install_go() {
     print_status "检查Go环境..."
     
-    local MIN_GO_VERSION="1.18.1"
+    local MIN_GO_VERSION="1.19"
     
     if command -v go >/dev/null 2>&1; then
         GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
