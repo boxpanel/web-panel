@@ -36,7 +36,7 @@ jobs:
         if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
           echo "Building frontend..."
           cd frontend
-          npm ci --legacy-peer-deps
+          npm ci
           npm run build
           mkdir -p ../backend/static
           if [ -d "dist" ]; then
