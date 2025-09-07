@@ -1,12 +1,12 @@
-package service
+﻿package service
 
 import (
 	"fmt"
 	"runtime"
 	"time"
 
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/model"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/model"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"

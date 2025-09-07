@@ -10,12 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"web-panel-go/internal/config"
-	"web-panel-go/internal/database"
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/router"
-	"web-panel-go/internal/service"
-	"web-panel-go/internal/websocket"
+	"github.com/web-panel/web-panel/internal/config"
+	"github.com/web-panel/web-panel/internal/database"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/router"
+	"github.com/web-panel/web-panel/internal/service"
+	"github.com/web-panel/web-panel/internal/websocket"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"fmt"
@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/model"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/model"
 
 	"gorm.io/gorm"
 )

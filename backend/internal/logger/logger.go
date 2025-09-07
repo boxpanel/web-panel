@@ -1,4 +1,4 @@
-package logger
+﻿package logger
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	"web-panel-go/internal/config"
+	"github.com/web-panel/web-panel/internal/config"
 )
 
 var Logger *logrus.Logger

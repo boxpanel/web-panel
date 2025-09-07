@@ -1,4 +1,4 @@
-package websocket
+﻿package websocket
 
 import (
 	"encoding/json"
@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/middleware"
-	"web-panel-go/internal/model"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/middleware"
+	"github.com/web-panel/web-panel/internal/model"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"

@@ -1,12 +1,12 @@
-package middleware
+﻿package middleware
 
 import (
 	"fmt"
 	"net/http"
 	"time"
 
-	"web-panel-go/internal/config"
-	"web-panel-go/internal/logger"
+	"github.com/web-panel/web-panel/internal/config"
+	"github.com/web-panel/web-panel/internal/logger"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"

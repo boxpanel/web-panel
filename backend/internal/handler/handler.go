@@ -1,7 +1,7 @@
-package handler
+﻿package handler
 
 import (
-	"web-panel-go/internal/service"
+	"github.com/web-panel/web-panel/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

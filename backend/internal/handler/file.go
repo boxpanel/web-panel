@@ -1,13 +1,13 @@
-package handler
+﻿package handler
 
 import (
 	"net/http"
 	"path/filepath"
 	"strconv"
 
-	"web-panel-go/internal/middleware"
-	"web-panel-go/internal/model"
-	"web-panel-go/internal/service"
+	"github.com/web-panel/web-panel/internal/middleware"
+	"github.com/web-panel/web-panel/internal/model"
+	"github.com/web-panel/web-panel/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

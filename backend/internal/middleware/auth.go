@@ -1,12 +1,12 @@
-package middleware
+﻿package middleware
 
 import (
 	"net/http"
 	"strings"
 
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/model"
-	"web-panel-go/internal/service"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/model"
+	"github.com/web-panel/web-panel/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

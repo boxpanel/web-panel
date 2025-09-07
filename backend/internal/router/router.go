@@ -1,11 +1,11 @@
 package router
 
 import (
-	"web-panel-go/internal/config"
-	"web-panel-go/internal/handler"
-	"web-panel-go/internal/middleware"
-	"web-panel-go/internal/service"
-	"web-panel-go/internal/websocket"
+	"github.com/web-panel/web-panel/internal/config"
+	"github.com/web-panel/web-panel/internal/handler"
+	"github.com/web-panel/web-panel/internal/middleware"
+	"github.com/web-panel/web-panel/internal/service"
+	"github.com/web-panel/web-panel/internal/websocket"
 
 	"github.com/gin-gonic/gin"
 )

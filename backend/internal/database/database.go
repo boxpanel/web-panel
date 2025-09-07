@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"web-panel-go/internal/config"
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/model"
+	"github.com/web-panel/web-panel/internal/config"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/model"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"

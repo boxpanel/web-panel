@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"errors"
@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"web-panel-go/internal/config"
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/model"
+	"github.com/web-panel/web-panel/internal/config"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/model"
 
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"

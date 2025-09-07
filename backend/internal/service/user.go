@@ -1,12 +1,12 @@
-package service
+﻿package service
 
 import (
 	"errors"
 	"fmt"
 
-	"web-panel-go/internal/database"
-	"web-panel-go/internal/logger"
-	"web-panel-go/internal/model"
+	"github.com/web-panel/web-panel/internal/database"
+	"github.com/web-panel/web-panel/internal/logger"
+	"github.com/web-panel/web-panel/internal/model"
 
 	"gorm.io/gorm"
 )

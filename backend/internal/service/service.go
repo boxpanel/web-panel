@@ -1,7 +1,7 @@
-package service
+﻿package service
 
 import (
-	"web-panel-go/internal/config"
+	"github.com/web-panel/web-panel/internal/config"
 
 	"gorm.io/gorm"
 )
