@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
   ],
+  root: '.',
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -27,6 +28,9 @@ export default defineConfig({
     sourcemap: false,
     minify: 'terser',
     rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'public/index.html'),
+      },
       output: {
         chunkFileNames: 'assets/js/[name]-[hash].js',
         entryFileNames: 'assets/js/[name]-[hash].js',
