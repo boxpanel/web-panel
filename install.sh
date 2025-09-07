@@ -508,7 +508,7 @@ install_webpanel() {
         cd backend
         
         # 根据检测到的Go版本调整go.mod
-        local detected_go_version=$(echo "$MIN_GO_VERSION" | cut -d'.' -f1,2)
+        local detected_go_version="$MIN_GO_VERSION"
         adjust_go_mod_version "go.mod" "$detected_go_version"
         
         go mod tidy
@@ -518,7 +518,7 @@ install_webpanel() {
         print_status "在根目录构建..."
         
         # 根据检测到的Go版本调整go.mod
-        local detected_go_version=$(echo "$MIN_GO_VERSION" | cut -d'.' -f1,2)
+        local detected_go_version="$MIN_GO_VERSION"
         adjust_go_mod_version "go.mod" "$detected_go_version"
         
         go mod tidy
