@@ -23,11 +23,18 @@ jobs:
     name: Build for multiple platforms
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: linux
             arch: amd64
           - os: linux
+            arch: arm64
+          - os: windows
+            arch: amd64
+          - os: darwin
+            arch: amd64
+          - os: darwin
             arch: arm64
 
     steps:
@@ -39,7 +46,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.23.0'
+        go-version: '1.24.5'
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -66,10 +73,16 @@ jobs:
           echo "Building frontend..."
           cd frontend
           
+          # Show Node.js and npm versions
+          echo "Node.js version: $(node --version)"
+          echo "npm version: $(npm --version)"
+          
           # Install dependencies
+          echo "Installing frontend dependencies..."
           npm ci
           
           # Build frontend
+          echo "Building frontend..."
           npm run build
           
           # Ensure backend static directory exists
@@ -77,10 +90,16 @@ jobs:
           
           # Copy built files to backend static directory
           if [ -d "dist" ]; then
+            echo "Copying frontend build to backend/static..."
             cp -r dist/* ../backend/static/
             echo "Frontend built and copied to backend/static"
+            echo "Static files:"
+            ls -la ../backend/static/
           else
-            echo "Warning: dist directory not found after build"
+            echo "Error: dist directory not found after build"
+            echo "Available directories:"
+            ls -la .
+            exit 1
           fi
           
           cd ..
@@ -90,17 +109,24 @@ jobs:
 
     - name: Build backend
       env:
-        GOOS: ${{ matrix.os == 'darwin' && 'darwin' || matrix.os }}
+        GOOS: ${{ matrix.os }}
         GOARCH: ${{ matrix.arch }}
         CGO_ENABLED: 0
       run: |
         cd backend
+        
+        # Show Go version and environment
+        echo "Go version: $(go version)"
+        echo "GOOS: $GOOS"
+        echo "GOARCH: $GOARCH"
+        echo "CGO_ENABLED: $CGO_ENABLED"
         
         # Set binary name
         BINARY_NAME="web-panel"
         if [ "${{ matrix.os }}" = "windows" ]; then
           BINARY_NAME="web-panel.exe"
         fi
+        echo "Building binary: $BINARY_NAME"
         
         # Build flags
         LDFLAGS="-s -w"
@@ -108,9 +134,28 @@ jobs:
         LDFLAGS="$LDFLAGS -X 'main.BuildTime=${{ steps.version.outputs.build_time }}'"
         LDFLAGS="$LDFLAGS -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}'"
         LDFLAGS="$LDFLAGS -X 'main.GitBranch=${{ steps.version.outputs.git_branch }}'"
+        echo "LDFLAGS: $LDFLAGS"
+        
+        # Verify main.go exists
+        if [ ! -f "./cmd/main.go" ]; then
+          echo "Error: ./cmd/main.go not found"
+          echo "Available files in cmd directory:"
+          ls -la ./cmd/
+          exit 1
+        fi
         
         # Build
+        echo "Starting Go build..."
         go build -ldflags "$LDFLAGS" -o "$BINARY_NAME" ./cmd/main.go
+        
+        # Verify binary was created
+        if [ ! -f "$BINARY_NAME" ]; then
+          echo "Error: Binary $BINARY_NAME was not created"
+          exit 1
+        fi
+        
+        echo "Binary built successfully: $BINARY_NAME"
+        ls -la "$BINARY_NAME"
         
         # Create release directory
         RELEASE_DIR="web-panel-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}"
@@ -154,20 +199,28 @@ jobs:
           chmod +x "$RELEASE_DIR/start.sh"
         fi
         
-        # Create tar.gz package
-        tar -czf "$RELEASE_DIR.tar.gz" "$RELEASE_DIR"
+        # Create package based on OS
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          # Create zip package for Windows
+          zip -r "$RELEASE_DIR.zip" "$RELEASE_DIR"
+          PACKAGE_NAME="$RELEASE_DIR.zip"
+        else
+          # Create tar.gz package for Unix-like systems
+          tar -czf "$RELEASE_DIR.tar.gz" "$RELEASE_DIR"
+          PACKAGE_NAME="$RELEASE_DIR.tar.gz"
+        fi
         
         # Move to artifacts directory
         mkdir -p ../artifacts
-        mv "$RELEASE_DIR.tar.gz" ../artifacts/
+        mv "$PACKAGE_NAME" ../artifacts/
         
-        echo "Package created: $RELEASE_DIR.tar.gz"
+        echo "Package created: $PACKAGE_NAME"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
         name: web-panel-${{ matrix.os }}-${{ matrix.arch }}
-        path: artifacts/*.tar.gz
+        path: artifacts/*
 
   release:
     name: Create Release
@@ -197,10 +250,16 @@ jobs:
       run: |
         mkdir -p release-assets
         find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+        find artifacts -name "*.zip" -exec cp {} release-assets/ \;
         
         # Generate checksums
         cd release-assets
-        sha256sum *.tar.gz > checksums.txt
+        if ls *.tar.gz 1> /dev/null 2>&1; then
+          sha256sum *.tar.gz >> checksums.txt
+        fi
+        if ls *.zip 1> /dev/null 2>&1; then
+          sha256sum *.zip >> checksums.txt
+        fi
         cd ..
         
         echo "Release assets:"
@@ -216,6 +275,7 @@ jobs:
         generate_release_notes: true
         files: |
           release-assets/*.tar.gz
+          release-assets/*.zip
           release-assets/checksums.txt
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
