@@ -70,8 +70,8 @@ jobs:
           echo "Building frontend..."
           cd frontend
           
-          # Install dependencies with legacy peer deps to avoid conflicts
-          npm ci --legacy-peer-deps
+          # Install dependencies
+          npm ci
           
           # Build frontend
           npm run build
