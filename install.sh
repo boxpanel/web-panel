@@ -427,10 +427,20 @@ download_and_install() {
     
     # 构建下载URL
     local package_name="web-panel-${VERSION}-${os}-${arch}.tar.gz"
-    local download_url="${REPO_URL}/releases/latest/download/${package_name}"
+    local download_url
+    
+    if [ "$VERSION" = "latest" ]; then
+        download_url="${REPO_URL}/releases/latest/download/${package_name}"
+    else
+        download_url="${REPO_URL}/releases/download/${VERSION}/${package_name}"
+    fi
     
     if [ "$CHINA_MIRROR" = "true" ]; then
-        download_url="https://gitee.com/boxpanel/web-panel/releases/latest/download/${package_name}"
+        if [ "$VERSION" = "latest" ]; then
+            download_url="https://gitee.com/boxpanel/web-panel/releases/latest/download/${package_name}"
+        else
+            download_url="https://gitee.com/boxpanel/web-panel/releases/download/${VERSION}/${package_name}"
+        fi
     fi
     
     print_status "下载地址: $download_url"
@@ -443,18 +453,51 @@ download_and_install() {
     
     # 下载预编译包
     print_status "正在下载预编译包..."
+    local download_success=false
+    
+    # 尝试下载
     if command -v wget >/dev/null 2>&1; then
-        wget -O "$temp_dir/$package_name" "$download_url"
+        if wget -O "$temp_dir/$package_name" "$download_url" 2>/dev/null; then
+            download_success=true
+        fi
     elif command -v curl >/dev/null 2>&1; then
-        curl -L -o "$temp_dir/$package_name" "$download_url"
+        if curl -L -o "$temp_dir/$package_name" "$download_url" 2>/dev/null; then
+            download_success=true
+        fi
     else
         print_error "未找到wget或curl，无法下载文件"
         exit 1
     fi
     
-    if [ $? -ne 0 ]; then
+    # 如果下载失败，尝试fallback
+    if [ "$download_success" = false ]; then
+        print_warning "下载失败，尝试使用v1.0.0版本..."
+        
+        local fallback_package="web-panel-v1.0.0-${os}-${arch}.tar.gz"
+        local fallback_url="${REPO_URL}/releases/download/v1.0.0/${fallback_package}"
+        
+        if command -v wget >/dev/null 2>&1; then
+            if wget -O "$temp_dir/$fallback_package" "$fallback_url" 2>/dev/null; then
+                package_name="$fallback_package"
+                download_success=true
+            fi
+        elif command -v curl >/dev/null 2>&1; then
+            if curl -L -o "$temp_dir/$fallback_package" "$fallback_url" 2>/dev/null; then
+                package_name="$fallback_package"
+                download_success=true
+            fi
+        fi
+    fi
+    
+    if [ "$download_success" = false ]; then
         print_error "下载预编译包失败"
-        print_error "请检查网络连接或GitHub访问是否正常"
+        print_error "请检查:"
+        print_error "1. 网络连接是否正常"
+        print_error "2. GitHub访问是否正常"
+        print_error "3. 版本 $VERSION 是否存在"
+        print_error "4. 架构 $os/$arch 是否支持"
+        print_error ""
+        print_error "可用版本请查看: ${REPO_URL}/releases"
         exit 1
     fi
     
