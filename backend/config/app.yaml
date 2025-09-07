@@ -1,0 +1,75 @@
+# Web Panel 配置文件 - 基于1Panel标准
+version: "1.0"
+
+# 系统配置
+system:
+  mode: "dev"  # dev, prod
+  port: 8080
+  ipv6: false
+  ssl: false
+  cert_file: ""
+  key_file: ""
+  base_dir: "/opt/web-panel"
+  data_dir: "/opt/web-panel/data"
+  log_dir: "/opt/web-panel/logs"
+  backup_dir: "/opt/web-panel/backup"
+  upload_dir: "/opt/web-panel/uploads"
+  session_timeout: 86400
+  
+# 数据库配置
+database:
+  type: "sqlite"  # sqlite, mysql, postgres
+  host: "127.0.0.1"
+  port: 3306
+  user: ""
+  password: ""
+  name: "web_panel"
+  path: "/opt/web-panel/data/database.sqlite"
+  ssl_mode: "disable"
+  root_password: ""
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 3600
+
+# JWT认证配置
+jwt:
+  secret: "your-jwt-secret-key-change-in-production"
+  expires: 86400  # 24小时
+  
+# 安全配置
+security:
+  allowed_ips: []
+  denied_ips: []
+  timeout: 300
+  complexity_verification: "disable"  # disable, enable
+  mfa_status: "disable"  # disable, enable
+  mfa_secret: ""
+  
+# 日志配置
+log:
+  level: "info"  # debug, info, warn, error
+  path: "/opt/web-panel/logs/web-panel.log"
+  max_size: 100  # MB
+  max_backups: 10
+  max_age: 30  # days
+  compress: true
+  
+# 监控配置
+monitor:
+  status: "enable"  # enable, disable
+  storage_status: "enable"
+  network_status: "enable"
+  
+# 应用商店配置
+app:
+  repo: "https://resource.fit2cloud.com/1panel/package"
+  
+# 备份配置
+backup:
+  type: "LOCAL"  # LOCAL, S3, SFTP, OSS, COS, KODO, OneDrive
+  backup_path: "/opt/web-panel/backup"
+  
+# 快照配置
+snapshot:
+  ignore_daemon: false
+  ignore_cache: false

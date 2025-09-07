@@ -5,11 +5,15 @@
 
 set -e
 
-# 配置
+# 配置 - 基于1Panel标准
 REPO_URL="https://github.com/boxpanel/web-panel"
 INSTALL_DIR="/opt/web-panel"
 SERVICE_NAME="web-panel"
 USER="webpanel"
+VERSION="latest"
+CHINA_MIRROR="false"
+SKIP_FIREWALL="false"
+PORT="8080"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -38,27 +42,101 @@ print_error() {
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         print_error "此脚本需要root权限运行"
-        print_status "请使用: sudo $0"
+        print_status "请使用: curl -sSL https://resource.fit2cloud.com/web-panel/installer/install.sh | sudo bash"
+        print_status "或者: sudo bash install.sh"
         exit 1
     fi
+}
+
+# 解析命令行参数 - 类似1Panel
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --china)
+                CHINA_MIRROR="true"
+                print_info "使用中国镜像源"
+                shift
+                ;;
+            --skip-firewall)
+                SKIP_FIREWALL="true"
+                print_info "跳过防火墙配置"
+                shift
+                ;;
+            --port)
+                PORT="$2"
+                print_info "设置端口: $PORT"
+                shift 2
+                ;;
+            --version)
+                VERSION="$2"
+                print_info "指定版本: $VERSION"
+                shift 2
+                ;;
+            -h|--help)
+                show_install_help
+                exit 0
+                ;;
+            *)
+                print_warning "未知参数: $1"
+                shift
+                ;;
+        esac
+    done
+}
+
+# 显示安装帮助
+show_install_help() {
+    cat << EOF
+Web Panel 安装脚本 - 基于1Panel标准
+
+用法: bash install.sh [选项]
+
+选项:
+  --china           使用中国镜像源加速下载
+  --skip-firewall   跳过防火墙配置
+  --port PORT       指定服务端口 (默认: 8080)
+  --version VER     指定安装版本 (默认: latest)
+  -h, --help        显示帮助信息
+
+示例:
+  # 标准安装
+  curl -sSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install.sh | sudo bash
+  
+  # 使用中国镜像源
+  curl -sSL https://raw.githubusercontent.com/boxpanel/web-panel/main/install.sh | sudo bash -s -- --china
+  
+  # 指定端口和版本
+  sudo bash install.sh --port 9999 --version v1.2.0
+
+EOF
 }
 
 # 检查系统环境
 check_system() {
     print_status "检查系统环境..."
     
-    # 检查操作系统
+    # 检查操作系统 - 与1Panel保持一致
     if [[ -f /etc/os-release ]]; then
         . /etc/os-release
         OS=$NAME
         VER=$VERSION_ID
         print_status "检测到系统: $OS $VER"
+        
+        # 检查是否为支持的Linux发行版
+        case $ID in
+            ubuntu|debian|centos|rhel|fedora|opensuse|sles|kylin|uos|deepin)
+                print_success "支持的操作系统: $ID"
+                ;;
+            *)
+                print_warning "未经测试的操作系统: $ID，可能存在兼容性问题"
+                ;;
+        esac
     else
-        print_error "无法检测操作系统版本"
+        print_error "无法检测操作系统版本，仅支持Linux系统"
         exit 1
     fi
     
-    # 检查架构
+    # 检查架构 - 与1Panel保持一致
     ARCH=$(uname -m)
     case $ARCH in
         x86_64)
@@ -70,26 +148,44 @@ check_system() {
         armv7l)
             ARCH="armv7"
             ;;
+        ppc64le)
+            ARCH="ppc64le"
+            ;;
+        s390x)
+            ARCH="s390x"
+            ;;
         *)
             print_error "不支持的系统架构: $ARCH"
+            print_error "支持的架构: x86_64, aarch64, armv7l, ppc64le, s390x"
             exit 1
             ;;
     esac
     print_status "系统架构: $ARCH"
     
-    # 检查内存
+    # 检查内存 - 与1Panel保持一致（1GB+）
     MEMORY=$(free -m | awk 'NR==2{printf "%.0f", $2/1024}')
     if [ "$MEMORY" -lt 1 ]; then
-        print_warning "系统内存不足1GB，可能影响运行性能"
+        print_error "系统内存不足1GB，无法安装"
+        print_error "最低要求: 1GB 内存"
+        exit 1
     fi
-    print_status "可用内存: ${MEMORY}GB"
+    print_success "内存检查通过: ${MEMORY}GB"
     
     # 检查磁盘空间
     DISK_SPACE=$(df -BG "$INSTALL_DIR" 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//' || echo "10")
     if [ "$DISK_SPACE" -lt 2 ]; then
-        print_warning "磁盘空间不足2GB，可能影响安装"
+        print_error "磁盘空间不足2GB，无法安装"
+        exit 1
     fi
-    print_status "可用磁盘空间: ${DISK_SPACE}GB"
+    print_success "磁盘空间检查通过: ${DISK_SPACE}GB"
+    
+    # 检查网络连接
+    print_status "检查网络连接..."
+    if ! ping -c 1 8.8.8.8 >/dev/null 2>&1; then
+        print_warning "网络连接异常，可能影响安装过程"
+    else
+        print_success "网络连接正常"
+    fi
 }
 
 # 安装系统依赖
@@ -136,7 +232,7 @@ install_dependencies() {
 check_install_go() {
     print_status "检查Go环境..."
     
-    local MIN_GO_VERSION="1.19"
+    local MIN_GO_VERSION="1.23.0"
     
     if command -v go >/dev/null 2>&1; then
         GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
@@ -491,12 +587,87 @@ case "$1" in
         print_success "Web Panel已卸载"
         ;;
     --help|-h)
-        echo "用法: $0 [选项]"
-        echo "选项:"
-        echo "  --uninstall  卸载Web Panel"
-        echo "  --help, -h   显示帮助信息"
+        show_install_help
         ;;
     *)
+        # 解析命令行参数
+        parse_args "$@"
+        
+        # 执行主安装流程
         main
+        
+        # 安装wpctl命令行工具
+        install_wpctl
         ;;
 esac
+
+# 安装wpctl命令行工具
+install_wpctl() {
+    print_status "安装wpctl命令行工具..."
+    
+    # 复制wpctl到系统路径
+    if [ -f "$INSTALL_DIR/wpctl" ]; then
+        cp "$INSTALL_DIR/wpctl" /usr/local/bin/wpctl
+        chmod +x /usr/local/bin/wpctl
+        print_success "wpctl工具安装完成"
+        print_info "使用方法: wpctl --help"
+    else
+        # 从仓库下载wpctl
+        local wpctl_url="$REPO_URL/raw/main/wpctl"
+        if [ "$CHINA_MIRROR" = "true" ]; then
+            wpctl_url="https://gitee.com/boxpanel/web-panel/raw/main/wpctl"
+        fi
+        
+        curl -fsSL "$wpctl_url" -o /usr/local/bin/wpctl
+        chmod +x /usr/local/bin/wpctl
+        print_success "wpctl工具安装完成"
+    fi
+}
+
+# 主安装函数
+main() {
+    print_info "开始安装 Web Panel..."
+    print_info "版本: $VERSION"
+    print_info "安装目录: $INSTALL_DIR"
+    print_info "服务端口: $PORT"
+    
+    check_root
+    check_system
+    install_dependencies
+    check_install_go
+    
+    create_user
+    download_and_install
+    configure_service
+    
+    # 配置防火墙
+    if [ "$SKIP_FIREWALL" != "true" ]; then
+        configure_firewall
+    fi
+    
+    start_service
+    
+    print_success "Web Panel 安装完成！"
+    print_info "访问地址: http://$(hostname -I | awk '{print $1}'):$PORT"
+    print_info "默认用户名: admin"
+    print_info "默认密码: admin123"
+    print_warning "请立即登录并修改默认密码！"
+    print_info "管理命令: wpctl --help"
+}
+
+# 配置防火墙
+configure_firewall() {
+    print_status "配置防火墙..."
+    
+    # 检查防火墙类型并开放端口
+    if command -v ufw >/dev/null 2>&1; then
+        ufw allow "$PORT"/tcp
+        print_success "UFW防火墙规则已添加"
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        firewall-cmd --permanent --add-port="$PORT"/tcp
+        firewall-cmd --reload
+        print_success "Firewalld防火墙规则已添加"
+    else
+        print_warning "未检测到防火墙，请手动开放端口 $PORT"
+    fi
+}
