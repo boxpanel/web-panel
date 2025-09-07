@@ -1,0 +1,95 @@
+name: Debug Release Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'debug-*'
+
+jobs:
+  debug-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.24.5'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.2.0'
+
+    - name: Debug environment
+      shell: bash
+      run: |
+        echo "=== Environment Debug ==="
+        pwd
+        ls -la
+        echo "Go version: $(go version)"
+        echo "Node version: $(node --version)"
+        echo "npm version: $(npm --version)"
+        echo "=== Frontend Check ==="
+        if [ -d "frontend" ]; then
+          echo "Frontend directory exists"
+          cd frontend
+          pwd
+          ls -la
+          if [ -f "package.json" ]; then
+            echo "package.json exists"
+            cat package.json | head -20
+          else
+            echo "package.json NOT found"
+          fi
+        else
+          echo "Frontend directory NOT found"
+        fi
+        
+    - name: Test frontend build
+      shell: bash
+      run: |
+        if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+          echo "Testing frontend build..."
+          cd frontend
+          npm ci
+          npm run build
+          if [ -d "dist" ]; then
+            echo "Frontend build successful"
+            ls -la dist/
+          else
+            echo "Frontend build failed - no dist directory"
+            exit 1
+          fi
+        else
+          echo "Skipping frontend build - no frontend found"
+        fi
+        
+    - name: Test backend build
+      shell: bash
+      run: |
+        echo "Testing backend build..."
+        cd backend
+        pwd
+        ls -la
+        if [ -f "cmd/main.go" ]; then
+          echo "main.go found, building..."
+          go build -o web-panel ./cmd/main.go
+          if [ -f "web-panel" ]; then
+            echo "Backend build successful"
+            ls -la web-panel
+          else
+            echo "Backend build failed - no binary created"
+            exit 1
+          fi
+        else
+          echo "main.go NOT found"
+          echo "Available files in cmd:"
+          ls -la cmd/
+          exit 1
+        fi
