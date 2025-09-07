@@ -232,7 +232,29 @@ install_dependencies() {
 check_install_go() {
     print_status "检查Go环境..."
     
-    local MIN_GO_VERSION="1.23.0"
+    # 动态检测Go版本兼容性
+    local MIN_GO_VERSION="1.18.0"  # 默认最低版本
+    local PREFERRED_GO_VERSION="1.23.0"  # 首选版本
+    
+    # 检测系统Go版本支持情况
+    detect_go_compatibility() {
+        if command -v go >/dev/null 2>&1; then
+            local current_version=$(go version | awk '{print $3}' | sed 's/go//')
+            # 如果当前Go版本低于1.19，使用1.18作为目标
+            if version_compare "$current_version" "1.19.0"; then
+                MIN_GO_VERSION="1.18.0"
+                print_status "检测到较旧Go环境，使用兼容版本: $MIN_GO_VERSION"
+            else
+                MIN_GO_VERSION="$PREFERRED_GO_VERSION"
+                print_status "使用推荐Go版本: $MIN_GO_VERSION"
+            fi
+        else
+            # 新安装默认使用推荐版本
+            MIN_GO_VERSION="$PREFERRED_GO_VERSION"
+        fi
+    }
+    
+    detect_go_compatibility
     
     if command -v go >/dev/null 2>&1; then
         GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
@@ -458,15 +480,47 @@ install_webpanel() {
     # 确保在项目根目录
     cd "$INSTALL_DIR"
     
+    # 动态调整go.mod版本兼容性
+    adjust_go_mod_version() {
+        local go_mod_file="$1"
+        local target_version="$2"
+        
+        if [ -f "$go_mod_file" ]; then
+            # 检查当前go.mod中的Go版本
+            local current_go_version=$(grep "^go " "$go_mod_file" | awk '{print $2}')
+            
+            if [ "$current_go_version" != "$target_version" ]; then
+                print_status "调整go.mod Go版本从 $current_go_version 到 $target_version"
+                # 备份原文件
+                cp "$go_mod_file" "${go_mod_file}.backup"
+                # 更新Go版本
+                sed -i "s/^go .*/go $target_version/" "$go_mod_file"
+                # 移除可能存在的toolchain指令
+                sed -i '/^toolchain /d' "$go_mod_file"
+                print_success "go.mod版本已调整为兼容版本: $target_version"
+            fi
+        fi
+    }
+    
     # 检查go.mod文件位置
     if [ -f "backend/go.mod" ]; then
         print_status "检测到backend目录结构，切换到backend目录构建..."
         cd backend
+        
+        # 根据检测到的Go版本调整go.mod
+        local detected_go_version=$(echo "$MIN_GO_VERSION" | cut -d'.' -f1,2)
+        adjust_go_mod_version "go.mod" "$detected_go_version"
+        
         go mod tidy
         go build -o ../web-panel cmd/main.go
         cd ..
     elif [ -f "go.mod" ]; then
         print_status "在根目录构建..."
+        
+        # 根据检测到的Go版本调整go.mod
+        local detected_go_version=$(echo "$MIN_GO_VERSION" | cut -d'.' -f1,2)
+        adjust_go_mod_version "go.mod" "$detected_go_version"
+        
         go mod tidy
         go build -o web-panel cmd/main.go
     else
