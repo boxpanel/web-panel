@@ -457,8 +457,22 @@ install_webpanel() {
     print_status "构建Go后端..."
     # 确保在项目根目录
     cd "$INSTALL_DIR"
-    go mod tidy
-    go build -o web-panel cmd/main.go
+    
+    # 检查go.mod文件位置
+    if [ -f "backend/go.mod" ]; then
+        print_status "检测到backend目录结构，切换到backend目录构建..."
+        cd backend
+        go mod tidy
+        go build -o ../web-panel cmd/main.go
+        cd ..
+    elif [ -f "go.mod" ]; then
+        print_status "在根目录构建..."
+        go mod tidy
+        go build -o web-panel cmd/main.go
+    else
+        print_error "未找到go.mod文件，请检查项目结构"
+        exit 1
+    fi
     
     # 注意：此脚本专注于Go后端构建，不包含前端构建
     # 如需前端功能，请手动构建或使用完整版安装脚本
