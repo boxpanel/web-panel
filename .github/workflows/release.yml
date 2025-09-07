@@ -27,20 +27,12 @@ jobs:
         include:
           - os: linux
             arch: amd64
-            goos: linux
-            goarch: amd64
           - os: linux
             arch: arm64
-            goos: linux
-            goarch: arm64
           - os: darwin
             arch: amd64
-            goos: darwin
-            goarch: amd64
           - os: windows
             arch: amd64
-            goos: windows
-            goarch: amd64
 
     steps:
     - name: Checkout code
@@ -102,15 +94,15 @@ jobs:
 
     - name: Build backend
       env:
-        GOOS: ${{ matrix.goos }}
-        GOARCH: ${{ matrix.goarch }}
+        GOOS: ${{ matrix.os == 'darwin' && 'darwin' || matrix.os }}
+        GOARCH: ${{ matrix.arch }}
         CGO_ENABLED: 0
       run: |
         cd backend
         
         # Set binary name
         BINARY_NAME="web-panel"
-        if [ "${{ matrix.goos }}" = "windows" ]; then
+        if [ "${{ matrix.os }}" = "windows" ]; then
           BINARY_NAME="web-panel.exe"
         fi
         
@@ -150,7 +142,7 @@ jobs:
         cp ../LICENSE "$RELEASE_DIR/" 2>/dev/null || true
         
         # Create startup scripts
-        if [ "${{ matrix.goos }}" = "windows" ]; then
+        if [ "${{ matrix.os }}" = "windows" ]; then
           cat > "$RELEASE_DIR/start.bat" << 'EOF'
         @echo off
         echo Starting Web Panel...
