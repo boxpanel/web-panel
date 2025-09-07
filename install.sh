@@ -364,15 +364,44 @@ collect_user_config() {
     ADMIN_USER=${ADMIN_USER:-admin}
     
     # 收集管理员密码
-    while true; do
-        read -s -p "请输入管理员密码: " ADMIN_PASS
+    local password_attempts=0
+    local max_attempts=3
+    
+    while [ $password_attempts -lt $max_attempts ]; do
         echo
+        print_status "设置管理员密码 (尝试 $((password_attempts + 1))/$max_attempts)"
+        
+        # 清空变量
+        ADMIN_PASS=""
+        ADMIN_PASS_CONFIRM=""
+        
+        # 输入密码
+        while [ -z "$ADMIN_PASS" ]; do
+            read -s -p "请输入管理员密码 (至少6位): " ADMIN_PASS
+            echo
+            if [ ${#ADMIN_PASS} -lt 6 ]; then
+                print_error "密码长度至少6位，请重新输入"
+                ADMIN_PASS=""
+            fi
+        done
+        
+        # 确认密码
         read -s -p "请确认管理员密码: " ADMIN_PASS_CONFIRM
         echo
-        if [[ "$ADMIN_PASS" == "$ADMIN_PASS_CONFIRM" ]]; then
+        
+        # 验证密码
+        if [ "$ADMIN_PASS" = "$ADMIN_PASS_CONFIRM" ] && [ -n "$ADMIN_PASS" ]; then
+            print_success "密码设置成功"
             break
         else
-            print_error "密码不匹配，请重新输入"
+            password_attempts=$((password_attempts + 1))
+            if [ $password_attempts -lt $max_attempts ]; then
+                print_error "密码不匹配或为空，请重新输入 (剩余尝试: $((max_attempts - password_attempts)))"
+            else
+                print_error "密码设置失败次数过多，使用默认密码: admin123"
+                ADMIN_PASS="admin123"
+                print_warning "请安装完成后立即修改默认密码！"
+            fi
         fi
     done
     
