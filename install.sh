@@ -425,6 +425,14 @@ download_and_install() {
     
     local os="linux"
     
+    # 确保VERSION变量正确设置
+    if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
+        VERSION="latest"
+    fi
+    
+    print_status "目标版本: $VERSION"
+    print_status "目标架构: $os/$arch"
+    
     # 构建下载URL
     local package_name="web-panel-${VERSION}-${os}-${arch}.tar.gz"
     local download_url
@@ -471,10 +479,10 @@ download_and_install() {
     
     # 如果下载失败，尝试fallback
     if [ "$download_success" = false ]; then
-        print_warning "下载失败，尝试使用v1.0.0版本..."
+        print_warning "下载失败，尝试使用v1.0.4版本..."
         
-        local fallback_package="web-panel-v1.0.0-${os}-${arch}.tar.gz"
-        local fallback_url="${REPO_URL}/releases/download/v1.0.0/${fallback_package}"
+        local fallback_package="web-panel-v1.0.4-${os}-${arch}.tar.gz"
+        local fallback_url="${REPO_URL}/releases/download/v1.0.4/${fallback_package}"
         
         if command -v wget >/dev/null 2>&1; then
             if wget -O "$temp_dir/$fallback_package" "$fallback_url" 2>/dev/null; then
