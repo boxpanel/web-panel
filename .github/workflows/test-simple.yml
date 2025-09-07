@@ -1,0 +1,37 @@
+name: Simple Test
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Simple Test Job
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Test environment
+      run: |
+        echo "Testing GitHub Actions environment"
+        echo "Runner OS: $RUNNER_OS"
+        echo "GitHub Workspace: $GITHUB_WORKSPACE"
+        echo "Current directory: $(pwd)"
+        ls -la
+        
+    - name: Test Go setup
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.0'
+        
+    - name: Verify Go
+      run: |
+        go version
+        echo "Go setup successful"
