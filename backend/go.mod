@@ -1,8 +1,6 @@
 module github.com/web-panel/web-panel
 
-go 1.24.0
-
-toolchain go1.24.5
+go 1.23
 
 require (
 	github.com/gin-contrib/cors v1.7.6
