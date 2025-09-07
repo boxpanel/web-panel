@@ -33,30 +33,14 @@ jobs:
             arch: arm64
             goos: linux
             goarch: arm64
-          - os: linux
-            arch: 386
-            goos: linux
-            goarch: 386
-          - os: linux
-            arch: arm
-            goos: linux
-            goarch: arm
           - os: darwin
             arch: amd64
             goos: darwin
             goarch: amd64
-          - os: darwin
-            arch: arm64
-            goos: darwin
-            goarch: arm64
           - os: windows
             arch: amd64
             goos: windows
             goarch: amd64
-          - os: windows
-            arch: 386
-            goos: windows
-            goarch: 386
 
     steps:
     - name: Checkout code
