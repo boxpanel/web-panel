@@ -117,7 +117,7 @@ jobs:
         LDFLAGS="$LDFLAGS -X 'main.GitBranch=${{ steps.version.outputs.git_branch }}'"
         
         # Build
-        go build -ldflags "$LDFLAGS" -o "$BINARY_NAME" cmd/main.go
+        go build -ldflags "$LDFLAGS" -o "$BINARY_NAME" ./cmd/main.go
         
         # Create release directory
         RELEASE_DIR="web-panel-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}"
@@ -127,9 +127,9 @@ jobs:
         mv "$BINARY_NAME" "$RELEASE_DIR/"
         
         # Copy config files
-        if [ -f "config/app.yaml" ]; then
+        if [ -f "../config/app.yaml" ]; then
           mkdir -p "$RELEASE_DIR/config"
-          cp config/app.yaml "$RELEASE_DIR/config/"
+          cp ../config/app.yaml "$RELEASE_DIR/config/"
         fi
         
         # Copy static files
