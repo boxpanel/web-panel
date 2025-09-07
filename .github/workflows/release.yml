@@ -148,7 +148,10 @@ jobs:
         mv "$BINARY_NAME" "$RELEASE_DIR/"
         
         # Copy config files
-        if [ -f "../config/app.yaml" ]; then
+        if [ -f "config/app.yaml" ]; then
+          mkdir -p "$RELEASE_DIR/config"
+          cp config/app.yaml "$RELEASE_DIR/config/"
+        elif [ -f "../config/app.yaml" ]; then
           mkdir -p "$RELEASE_DIR/config"
           cp ../config/app.yaml "$RELEASE_DIR/config/"
         fi
@@ -198,7 +201,7 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: (startsWith(github.ref, 'refs/tags/') && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
     
     steps:
     - name: Checkout code
