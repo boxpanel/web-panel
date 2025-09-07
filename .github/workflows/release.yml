@@ -85,17 +85,18 @@ jobs:
 
     - name: Build frontend
       run: |
-        if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
-          echo "Building frontend..."
-          cd frontend
-          npm ci
-          npm run build
-          mkdir -p ../backend/static
-          cp -r dist/* ../backend/static/
-          cd ..
-        else
-          echo "No frontend found, skipping..."
-        fi
+        echo "Skipping frontend build for now..."
+        # if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+        #   echo "Building frontend..."
+        #   cd frontend
+        #   npm ci
+        #   npm run build
+        #   mkdir -p ../backend/static
+        #   cp -r dist/* ../backend/static/
+        #   cd ..
+        # else
+        #   echo "No frontend found, skipping..."
+        # fi
 
     - name: Build backend
       env:
