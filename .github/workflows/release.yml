@@ -1,0 +1,232 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version'
+        required: true
+        default: 'latest'
+
+jobs:
+  build:
+    name: Build for multiple platforms
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            goos: linux
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            goos: linux
+            goarch: arm64
+          - os: linux
+            arch: 386
+            goos: linux
+            goarch: 386
+          - os: linux
+            arch: arm
+            goos: linux
+            goarch: arm
+          - os: darwin
+            arch: amd64
+            goos: darwin
+            goarch: amd64
+          - os: darwin
+            arch: arm64
+            goos: darwin
+            goarch: arm64
+          - os: windows
+            arch: amd64
+            goos: windows
+            goarch: amd64
+          - os: windows
+            arch: 386
+            goos: windows
+            goarch: 386
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.0'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.2.x'
+        cache: 'npm'
+        cache-dependency-path: 'frontend/package-lock.json'
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+        echo "build_time=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+        echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "git_branch=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
+
+    - name: Build frontend
+      run: |
+        if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+          echo "Building frontend..."
+          cd frontend
+          npm ci
+          npm run build
+          mkdir -p ../backend/static
+          cp -r dist/* ../backend/static/
+          cd ..
+        else
+          echo "No frontend found, skipping..."
+        fi
+
+    - name: Build backend
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 0
+      run: |
+        cd backend
+        
+        # Set binary name
+        BINARY_NAME="web-panel"
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          BINARY_NAME="web-panel.exe"
+        fi
+        
+        # Build flags
+        LDFLAGS="-s -w"
+        LDFLAGS="$LDFLAGS -X 'main.Version=${{ steps.version.outputs.version }}'"
+        LDFLAGS="$LDFLAGS -X 'main.BuildTime=${{ steps.version.outputs.build_time }}'"
+        LDFLAGS="$LDFLAGS -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}'"
+        LDFLAGS="$LDFLAGS -X 'main.GitBranch=${{ steps.version.outputs.git_branch }}'"
+        
+        # Build
+        go build -ldflags "$LDFLAGS" -o "$BINARY_NAME" cmd/main.go
+        
+        # Create release directory
+        RELEASE_DIR="web-panel-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}"
+        mkdir -p "$RELEASE_DIR"
+        
+        # Copy binary
+        mv "$BINARY_NAME" "$RELEASE_DIR/"
+        
+        # Copy config files
+        if [ -f "config/app.yaml" ]; then
+          mkdir -p "$RELEASE_DIR/config"
+          cp config/app.yaml "$RELEASE_DIR/config/"
+        fi
+        
+        # Copy static files
+        if [ -d "static" ]; then
+          cp -r static "$RELEASE_DIR/"
+        fi
+        
+        # Copy documentation
+        cp ../README.md "$RELEASE_DIR/" 2>/dev/null || true
+        cp ../LICENSE "$RELEASE_DIR/" 2>/dev/null || true
+        
+        # Create startup scripts
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          cat > "$RELEASE_DIR/start.bat" << 'EOF'
+        @echo off
+        echo Starting Web Panel...
+        web-panel.exe
+        pause
+        EOF
+        else
+          cat > "$RELEASE_DIR/start.sh" << 'EOF'
+        #!/bin/bash
+        echo "Starting Web Panel..."
+        ./web-panel
+        EOF
+          chmod +x "$RELEASE_DIR/start.sh"
+        fi
+        
+        # Create tar.gz package
+        tar -czf "$RELEASE_DIR.tar.gz" "$RELEASE_DIR"
+        
+        # Move to artifacts directory
+        mkdir -p ../artifacts
+        mv "$RELEASE_DIR.tar.gz" ../artifacts/
+        
+        echo "Package created: $RELEASE_DIR.tar.gz"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: web-panel-${{ matrix.os }}-${{ matrix.arch }}
+        path: artifacts/*.tar.gz
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+        
+        # Generate checksums
+        cd release-assets
+        sha256sum *.tar.gz > checksums.txt
+        cd ..
+        
+        echo "Release assets:"
+        ls -la release-assets/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        files: |
+          release-assets/*.tar.gz
+          release-assets/checksums.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update latest release info
+      run: |
+        echo "Release ${{ steps.version.outputs.version }} created successfully!"
+        echo "Download URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}"
+        echo "Assets:"
+        ls -la release-assets/

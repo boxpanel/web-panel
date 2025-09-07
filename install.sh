@@ -5,15 +5,14 @@
 
 set -e
 
-# 配置 - 基于1Panel标准
+# 配置变量
 REPO_URL="https://github.com/boxpanel/web-panel"
 INSTALL_DIR="/opt/web-panel"
 SERVICE_NAME="web-panel"
-USER="webpanel"
+USER="web-panel"
+PORT=8080
 VERSION="latest"
 CHINA_MIRROR="false"
-SKIP_FIREWALL="false"
-PORT="8080"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -192,10 +191,10 @@ check_system() {
 install_dependencies() {
     print_status "检查和安装系统依赖..."
     
-    # 检查必要命令
+    # 检查必要命令（不再需要git和Go相关依赖）
     local missing_deps=()
     
-    for cmd in curl wget git; do
+    for cmd in curl wget tar; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             missing_deps+=("$cmd")
         fi
@@ -211,15 +210,15 @@ install_dependencies() {
     if command -v apt-get >/dev/null 2>&1; then
         # Debian/Ubuntu
         apt-get update
-        apt-get install -y "${missing_deps[@]}" build-essential
+        apt-get install -y "${missing_deps[@]}" systemd
     elif command -v yum >/dev/null 2>&1; then
         # CentOS/RHEL
         yum update -y
-        yum install -y "${missing_deps[@]}" gcc gcc-c++ make
+        yum install -y "${missing_deps[@]}" systemd
     elif command -v dnf >/dev/null 2>&1; then
         # Fedora
         dnf update -y
-        dnf install -y "${missing_deps[@]}" gcc gcc-c++ make
+        dnf install -y "${missing_deps[@]}" systemd
     else
         print_error "不支持的包管理器，请手动安装: ${missing_deps[*]}"
         exit 1
@@ -228,102 +227,60 @@ install_dependencies() {
     print_success "系统依赖安装完成"
 }
 
-# 检查和安装Go
-check_install_go() {
-    print_status "检查Go环境..."
+# 创建用户
+create_user() {
+    print_status "创建系统用户..."
     
-    # 动态检测Go版本兼容性
-    local MIN_GO_VERSION="1.18.0"  # 默认最低版本
-    local PREFERRED_GO_VERSION="1.23.0"  # 首选版本
-    
-    # 检测系统Go版本支持情况
-    detect_go_compatibility() {
-        if command -v go >/dev/null 2>&1; then
-            local current_version=$(go version | awk '{print $3}' | sed 's/go//')
-            # 如果当前Go版本低于1.19，使用1.18作为目标
-            if version_compare "$current_version" "1.19.0"; then
-                MIN_GO_VERSION="1.18.0"
-                print_status "检测到较旧Go环境，使用兼容版本: $MIN_GO_VERSION"
-            else
-                MIN_GO_VERSION="$PREFERRED_GO_VERSION"
-                print_status "使用推荐Go版本: $MIN_GO_VERSION"
-            fi
-        else
-            # 新安装默认使用推荐版本
-            MIN_GO_VERSION="$PREFERRED_GO_VERSION"
-        fi
-    }
-    
-    detect_go_compatibility
-    
-    if command -v go >/dev/null 2>&1; then
-        GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-        print_status "检测到Go版本: $GO_VERSION"
-        
-        # 版本比较函数
-        version_compare() {
-            local version1=$1
-            local version2=$2
-            
-            # 将版本号转换为数字进行比较
-            local v1=$(echo $version1 | sed 's/[^0-9.]//g' | awk -F. '{printf "%d%03d%03d", $1, $2, $3}')
-            local v2=$(echo $version2 | sed 's/[^0-9.]//g' | awk -F. '{printf "%d%03d%03d", $1, $2, $3}')
-            
-            if [ "$v1" -lt "$v2" ]; then
-                return 1  # version1 < version2
-            else
-                return 0  # version1 >= version2
-            fi
-        }
-        
-        if version_compare "$GO_VERSION" "$MIN_GO_VERSION"; then
-            print_success "Go版本满足要求: $GO_VERSION"
-        else
-            print_warning "Go版本过低，需要升级到 $MIN_GO_VERSION 或更高版本，当前版本: $GO_VERSION"
-            install_go "$MIN_GO_VERSION"
-        fi
+    # 检查用户是否已存在
+    if id "$USER" >/dev/null 2>&1; then
+        print_status "用户 $USER 已存在"
     else
-        print_status "未检测到Go，开始安装..."
-        install_go "$MIN_GO_VERSION"
+        # 创建系统用户
+        useradd -r -s /bin/false -d "$INSTALL_DIR" "$USER"
+        print_success "用户 $USER 创建成功"
     fi
+    
+    # 设置目录权限
+    mkdir -p "$INSTALL_DIR"
+    chown -R "$USER":"$USER" "$INSTALL_DIR"
 }
 
-# 安装Go
-install_go() {
-    local go_version="$1"
-    print_status "安装Go $go_version..."
+# 配置服务
+configure_service() {
+    print_status "配置Web Panel服务..."
     
-    # 下载Go
-    local GO_TAR="go${go_version}.linux-${ARCH}.tar.gz"
-    local GO_URL="https://golang.org/dl/${GO_TAR}"
+    # 创建配置目录
+    mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/uploads"
     
-    cd /tmp
-    wget -O "$GO_TAR" "$GO_URL" || {
-        print_error "下载Go失败"
-        exit 1
-    }
+    # 生成配置文件
+    cat > "$INSTALL_DIR/config.yaml" << EOF
+server:
+  port: $PORT
+  mode: release
+
+database:
+  type: sqlite
+  path: $INSTALL_DIR/data/database.sqlite
+
+log:
+  level: info
+  path: $INSTALL_DIR/logs
+
+upload:
+  path: $INSTALL_DIR/uploads
+  max_size: 100MB
+
+security:
+  jwt_secret: $(openssl rand -hex 32)
+  session_timeout: 24h
+EOF
     
-    # 安装Go
-    rm -rf /usr/local/go
-    tar -C /usr/local -xzf "$GO_TAR"
+    # 设置权限
+    chown -R "$USER":"$USER" "$INSTALL_DIR"
+    chmod 755 "$INSTALL_DIR"
+    chmod 644 "$INSTALL_DIR/config.yaml"
     
-    # 设置环境变量
-    if ! grep -q "/usr/local/go/bin" /etc/profile; then
-        echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-    fi
-    
-    export PATH=$PATH:/usr/local/go/bin
-    
-    # 验证安装
-    if command -v go >/dev/null 2>&1; then
-        print_success "Go安装成功: $(go version)"
-    else
-        print_error "Go安装失败"
-        exit 1
-    fi
-    
-    # 清理
-    rm -f "/tmp/$GO_TAR"
+    print_success "服务配置完成"
 }
 
 # 继续原有的系统检查
@@ -366,11 +323,18 @@ install_dependencies() {
     fi
 }
 
-# 使用当前用户（不创建系统用户）
+# 设置用户
 setup_user() {
-    print_status "使用当前用户运行服务..."
-    USER=$(whoami)
-    print_success "将使用用户: $USER"
+    print_status "设置系统用户..."
+    
+    # 检查用户是否已存在
+    if id "$USER" >/dev/null 2>&1; then
+        print_status "用户 $USER 已存在"
+    else
+        # 创建系统用户
+        useradd -r -s /bin/false -d "$INSTALL_DIR" "$USER"
+        print_success "用户 $USER 创建成功"
+    fi
 }
 
 # 用户配置收集
@@ -434,169 +398,214 @@ collect_user_config() {
     print_success "配置收集完成"
 }
 
-# 下载和安装
-install_webpanel() {
-    print_status "下载Web Panel源码..."
+# 下载预编译包
+download_and_install() {
+    print_status "下载Web Panel预编译包..."
     
-    # 安装Git依赖
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get update
-        apt-get install -y git
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y git
-    elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y git
+    # 检测系统架构
+    local arch=$(uname -m)
+    case $arch in
+        x86_64)
+            arch="amd64"
+            ;;
+        aarch64|arm64)
+            arch="arm64"
+            ;;
+        armv7l)
+            arch="arm"
+            ;;
+        i386|i686)
+            arch="386"
+            ;;
+        *)
+            print_error "不支持的系统架构: $arch"
+            exit 1
+            ;;
+    esac
+    
+    local os="linux"
+    
+    # 构建下载URL
+    local package_name="web-panel-${VERSION}-${os}-${arch}.tar.gz"
+    local download_url="${REPO_URL}/releases/latest/download/${package_name}"
+    
+    if [ "$CHINA_MIRROR" = "true" ]; then
+        download_url="https://gitee.com/boxpanel/web-panel/releases/latest/download/${package_name}"
+    fi
+    
+    print_status "下载地址: $download_url"
+    print_status "目标架构: $os/$arch"
+    
+    # 创建临时目录
+    local temp_dir="/tmp/web-panel-install"
+    rm -rf "$temp_dir"
+    mkdir -p "$temp_dir"
+    
+    # 下载预编译包
+    print_status "正在下载预编译包..."
+    if command -v wget >/dev/null 2>&1; then
+        wget -O "$temp_dir/$package_name" "$download_url"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -L -o "$temp_dir/$package_name" "$download_url"
     else
-        print_error "不支持的包管理器，请手动安装 git"
+        print_error "未找到wget或curl，无法下载文件"
         exit 1
     fi
     
-    # 创建安装目录
+    if [ $? -ne 0 ]; then
+        print_error "下载预编译包失败"
+        print_error "请检查网络连接或GitHub访问是否正常"
+        exit 1
+    fi
+    
+    # 验证下载的文件
+    if [ ! -f "$temp_dir/$package_name" ] || [ ! -s "$temp_dir/$package_name" ]; then
+        print_error "下载的文件无效或为空"
+        exit 1
+    fi
+    
+    print_success "预编译包下载完成"
+    
+    # 解压到安装目录
+    print_status "解压预编译包..."
+    cd "$temp_dir"
+    
+    if ! tar -tzf "$package_name" >/dev/null 2>&1; then
+        print_error "预编译包格式无效"
+        exit 1
+    fi
+    
+    tar -xzf "$package_name"
+    
+    if [ $? -ne 0 ]; then
+        print_error "解压预编译包失败"
+        exit 1
+    fi
+    
+    # 查找解压后的目录
+    local extracted_dir=$(find . -maxdepth 1 -type d -name "web-panel-*" | head -n 1)
+    if [ -z "$extracted_dir" ]; then
+        # 如果没有找到目录，可能文件直接解压到当前目录
+        if [ -f "web-panel" ]; then
+            extracted_dir="."
+        else
+            print_error "未找到解压后的程序文件"
+            exit 1
+        fi
+    fi
+    
+    # 复制文件到安装目录
+    print_status "安装文件到 $INSTALL_DIR..."
     mkdir -p "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
     
-    # 克隆源码
-    print_status "克隆源码仓库..."
-    
-    # 配置Git安全目录
-    git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
-    git config --global --add safe.directory "/opt/web-panel" 2>/dev/null || true
-    git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
-    
-    if [ -d ".git" ]; then
-        print_status "检测到已存在的Git仓库，更新代码..."
-        git fetch origin
-        git reset --hard origin/main
+    if [ "$extracted_dir" = "." ]; then
+        cp web-panel "$INSTALL_DIR/"
+        [ -f "config.yaml" ] && cp config.yaml "$INSTALL_DIR/"
+        [ -d "templates" ] && cp -r templates "$INSTALL_DIR/"
+        [ -d "static" ] && cp -r static "$INSTALL_DIR/"
     else
-        if [ "$(ls -A .)" ]; then
-            print_status "目录不为空，清理后重新克隆..."
-            rm -rf ./*
-        fi
-        git clone "$REPO_URL" .
+        cp -r "$extracted_dir"/* "$INSTALL_DIR/"
     fi
     
-    # 构建后端
-    print_status "构建Go后端..."
-    # 确保在项目根目录
-    cd "$INSTALL_DIR"
-    
-    # 动态调整go.mod版本兼容性
-    adjust_go_mod_version() {
-        local go_mod_file="$1"
-        local target_version="$2"
-        
-        if [ -f "$go_mod_file" ]; then
-            # 检查当前go.mod中的Go版本
-            local current_go_version=$(grep "^go " "$go_mod_file" | awk '{print $2}')
-            
-            if [ "$current_go_version" != "$target_version" ]; then
-                print_status "调整go.mod Go版本从 $current_go_version 到 $target_version"
-                # 备份原文件
-                cp "$go_mod_file" "${go_mod_file}.backup"
-                # 更新Go版本
-                sed -i "s/^go .*/go $target_version/" "$go_mod_file"
-                # 移除可能存在的toolchain指令
-                sed -i '/^toolchain /d' "$go_mod_file"
-                print_success "go.mod版本已调整为兼容版本: $target_version"
-            fi
-        fi
-    }
-    
-    # 检查go.mod文件位置
-    if [ -f "backend/go.mod" ]; then
-        print_status "检测到backend目录结构，切换到backend目录构建..."
-        cd backend
-        
-        # 根据检测到的Go版本调整go.mod
-        local detected_go_version="$MIN_GO_VERSION"
-        adjust_go_mod_version "go.mod" "$detected_go_version"
-        
-        go mod tidy
-        go build -o ../web-panel cmd/main.go
-        cd ..
-    elif [ -f "go.mod" ]; then
-        print_status "在根目录构建..."
-        
-        # 根据检测到的Go版本调整go.mod
-        local detected_go_version="$MIN_GO_VERSION"
-        adjust_go_mod_version "go.mod" "$detected_go_version"
-        
-        go mod tidy
-        go build -o web-panel cmd/main.go
-    else
-        print_error "未找到go.mod文件，请检查项目结构"
+    if [ $? -ne 0 ]; then
+        print_error "复制文件失败"
         exit 1
     fi
     
-    # 注意：此脚本专注于Go后端构建，不包含前端构建
-    # 如需前端功能，请手动构建或使用完整版安装脚本
+    # 设置执行权限
+    chmod +x "$INSTALL_DIR/web-panel"
     
-    # 设置权限
-    chmod +x web-panel
-    # 使用当前用户，无需chown
+    # 清理临时文件
+    cd /
+    rm -rf "$temp_dir"
     
-    print_success "Web Panel构建完成"
+    print_success "Web Panel安装完成"
 }
 
 # 创建配置文件
 create_config() {
     print_status "创建配置文件..."
     
-    # 生成JWT密钥
-    JWT_SECRET="web-panel-$(openssl rand -hex 32)"
+    # 创建数据目录
+    mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/uploads"
     
-    # 生成SQLite配置文件
-    cat > "$INSTALL_DIR/.env" << EOF
-PORT=$WEB_PORT
-JWT_SECRET=$JWT_SECRET
-DB_TYPE=sqlite
-DB_PATH=$INSTALL_DIR/data/database.sqlite
-UPLOAD_PATH=$INSTALL_DIR/uploads
-LOG_LEVEL=info
-ADMIN_USER=$ADMIN_USER
-ADMIN_PASS=$ADMIN_PASS
+    # 生成配置文件
+    cat > "$INSTALL_DIR/config.yaml" << EOF
+server:
+  port: $PORT
+  mode: release
+
+database:
+  type: sqlite
+  path: $INSTALL_DIR/data/database.sqlite
+
+log:
+  level: info
+  path: $INSTALL_DIR/logs
+
+upload:
+  path: $INSTALL_DIR/uploads
+  max_size: 100MB
+
+security:
+  jwt_secret: $(openssl rand -hex 32)
+  session_timeout: 24h
 EOF
     
-    # 创建必要目录
-    mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/uploads"
-    # 使用当前用户，无需chown
+    # 设置权限
+    chown -R "$USER":"$USER" "$INSTALL_DIR"
+    chmod 755 "$INSTALL_DIR"
+    chmod 644 "$INSTALL_DIR/config.yaml"
     
-    print_success "配置文件已创建"
+    print_success "配置文件创建完成"
 }
 
 # 创建systemd服务
 create_service() {
-    print_status "创建系统服务..."
+    print_status "创建systemd服务..."
     
     cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOF
 [Unit]
-Description=Web Panel Service
+Description=Web Panel Server
 After=network.target
+Wants=network.target
 
 [Service]
 Type=simple
 User=$USER
+Group=$USER
 WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/web-panel
-Restart=always
-RestartSec=5
-EnvironmentFile=$INSTALL_DIR/.env
+ExecReload=/bin/kill -HUP \$MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=5
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=$SERVICE_NAME
 
 # 安全设置
-NoNewPrivileges=true
-PrivateTmp=true
+NoNewPrivileges=yes
+PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=yes
 ReadWritePaths=$INSTALL_DIR
+
+# 环境变量
+Environment=GIN_MODE=release
+Environment=CONFIG_PATH=$INSTALL_DIR/config.yaml
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
+    # 重新加载systemd
     systemctl daemon-reload
     systemctl enable "$SERVICE_NAME"
     
-    print_success "系统服务已创建"
+    print_success "systemd服务创建完成"
 }
 
 # 配置防火墙
@@ -619,14 +628,17 @@ setup_firewall() {
 start_service() {
     print_status "启动Web Panel服务..."
     
+    # 启动服务
     systemctl start "$SERVICE_NAME"
-    sleep 3
     
+    # 检查服务状态
+    sleep 3
     if systemctl is-active --quiet "$SERVICE_NAME"; then
         print_success "Web Panel服务启动成功"
     else
         print_error "Web Panel服务启动失败"
-        systemctl status "$SERVICE_NAME"
+        print_status "查看服务日志:"
+        systemctl status "$SERVICE_NAME" --no-pager -l
         exit 1
     fi
 }
@@ -636,9 +648,9 @@ show_info() {
     echo ""
     echo "🎉 Web Panel 安装完成！"
     echo ""
-    echo "📍 访问地址: http://$(hostname -I | awk '{print $1}'):$WEB_PORT"
-    echo "👤 管理员账号: $ADMIN_USER / $ADMIN_PASS"
-    echo "💾 数据库类型: $DB_TYPE"
+    echo "📍 访问地址: http://$(hostname -I | awk '{print $1}'):$PORT"
+    echo "👤 管理员账号: admin / admin123"
+    echo "💾 数据库类型: SQLite"
     echo ""
     echo "🔧 管理命令:"
     echo "  启动服务: systemctl start $SERVICE_NAME"
@@ -648,8 +660,52 @@ show_info() {
     echo "  查看日志: journalctl -u $SERVICE_NAME -f"
     echo ""
     echo "📁 安装目录: $INSTALL_DIR"
-    echo "⚙️  配置文件: $INSTALL_DIR/.env"
+    echo "⚙️  配置文件: $INSTALL_DIR/config.yaml"
     echo ""
+}
+
+# 卸载函数
+uninstall() {
+    print_status "开始卸载Web Panel..."
+    
+    # 停止服务
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        systemctl stop "$SERVICE_NAME"
+        print_status "服务已停止"
+    fi
+    
+    # 禁用服务
+    if systemctl is-enabled --quiet "$SERVICE_NAME"; then
+        systemctl disable "$SERVICE_NAME"
+        print_status "服务已禁用"
+    fi
+    
+    # 删除服务文件
+    if [ -f "/etc/systemd/system/$SERVICE_NAME.service" ]; then
+        rm -f "/etc/systemd/system/$SERVICE_NAME.service"
+        systemctl daemon-reload
+        print_status "服务文件已删除"
+    fi
+    
+    # 删除安装目录
+    if [ -d "$INSTALL_DIR" ]; then
+        rm -rf "$INSTALL_DIR"
+        print_status "安装目录已删除"
+    fi
+    
+    # 删除用户
+    if id "$USER" >/dev/null 2>&1; then
+        userdel "$USER" 2>/dev/null || true
+        print_status "用户已删除"
+    fi
+    
+    # 删除wpctl工具
+    if [ -f "/usr/local/bin/wpctl" ]; then
+        rm -f "/usr/local/bin/wpctl"
+        print_status "wpctl工具已删除"
+    fi
+    
+    print_success "Web Panel卸载完成！"
 }
 
 # 主函数
@@ -659,14 +715,17 @@ main() {
     
     check_root
     check_system
-    collect_user_config
     install_dependencies
-    check_install_go
-    setup_user
-    install_webpanel
-    create_config
+    create_user
+    download_and_install
+    configure_service
     create_service
-    setup_firewall
+    
+    # 配置防火墙
+    if [ "${SKIP_FIREWALL:-false}" != "true" ]; then
+        setup_firewall
+    fi
+    
     start_service
     show_info
 }
@@ -674,17 +733,12 @@ main() {
 # 处理参数
 case "$1" in
     --uninstall)
-        print_status "卸载Web Panel..."
-        systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-        systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-        rm -f "/etc/systemd/system/$SERVICE_NAME.service"
-        rm -rf "$INSTALL_DIR"
-        userdel "$USER" 2>/dev/null || true
-        systemctl daemon-reload
-        print_success "Web Panel已卸载"
+        uninstall
+        exit 0
         ;;
     --help|-h)
         show_install_help
+        exit 0
         ;;
     *)
         # 解析命令行参数
