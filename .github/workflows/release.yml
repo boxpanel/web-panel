@@ -57,6 +57,7 @@ jobs:
 
     - name: Get version
       id: version
+      shell: bash
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
@@ -68,6 +69,7 @@ jobs:
         echo "git_branch=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_OUTPUT
 
     - name: Build frontend
+      shell: bash
       run: |
         if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
           echo "Building frontend..."
@@ -108,6 +110,7 @@ jobs:
         fi
 
     - name: Build backend
+      shell: bash
       env:
         GOOS: ${{ matrix.os }}
         GOARCH: ${{ matrix.arch }}
@@ -234,6 +237,7 @@ jobs:
 
     - name: Get version
       id: version
+      shell: bash
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
@@ -247,6 +251,7 @@ jobs:
         path: artifacts
 
     - name: Prepare release assets
+      shell: bash
       run: |
         mkdir -p release-assets
         find artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
@@ -281,6 +286,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Update latest release info
+      shell: bash
       run: |
         echo "Release ${{ steps.version.outputs.version }} created successfully!"
         echo "Download URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}"
