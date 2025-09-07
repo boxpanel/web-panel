@@ -85,18 +85,31 @@ jobs:
 
     - name: Build frontend
       run: |
-        echo "Skipping frontend build for now..."
-        # if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
-        #   echo "Building frontend..."
-        #   cd frontend
-        #   npm ci
-        #   npm run build
-        #   mkdir -p ../backend/static
-        #   cp -r dist/* ../backend/static/
-        #   cd ..
-        # else
-        #   echo "No frontend found, skipping..."
-        # fi
+        if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+          echo "Building frontend..."
+          cd frontend
+          
+          # Install dependencies with legacy peer deps to avoid conflicts
+          npm ci --legacy-peer-deps
+          
+          # Build frontend
+          npm run build
+          
+          # Ensure backend static directory exists
+          mkdir -p ../backend/static
+          
+          # Copy built files to backend static directory
+          if [ -d "dist" ]; then
+            cp -r dist/* ../backend/static/
+            echo "Frontend built and copied to backend/static"
+          else
+            echo "Warning: dist directory not found after build"
+          fi
+          
+          cd ..
+        else
+          echo "No frontend found, skipping frontend build..."
+        fi
 
     - name: Build backend
       env:
