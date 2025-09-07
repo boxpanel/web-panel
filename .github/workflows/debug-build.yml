@@ -1,0 +1,92 @@
+name: Debug Build
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  debug-build:
+    name: Debug Build Single Platform
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23.0'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.2.0'
+        cache: 'npm'
+        cache-dependency-path: 'frontend/package-lock.json'
+
+    - name: Check Node.js version
+      run: |
+        node --version
+        npm --version
+
+    - name: Check frontend directory
+      run: |
+        ls -la
+        if [ -d "frontend" ]; then
+          echo "Frontend directory exists"
+          ls -la frontend/
+          if [ -f "frontend/package.json" ]; then
+            echo "package.json exists"
+            cat frontend/package.json | head -20
+          fi
+          if [ -f "frontend/package-lock.json" ]; then
+            echo "package-lock.json exists"
+          fi
+        else
+          echo "Frontend directory not found"
+        fi
+
+    - name: Install frontend dependencies
+      run: |
+        if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+          echo "Installing frontend dependencies..."
+          cd frontend
+          npm ci --legacy-peer-deps
+          echo "Dependencies installed successfully"
+        else
+          echo "Skipping frontend build - no frontend found"
+        fi
+
+    - name: Build frontend
+      run: |
+        if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+          echo "Building frontend..."
+          cd frontend
+          npm run build
+          echo "Frontend build completed"
+          ls -la dist/ || echo "No dist directory found"
+        else
+          echo "Skipping frontend build - no frontend found"
+        fi
+
+    - name: Build backend
+      env:
+        GOOS: linux
+        GOARCH: amd64
+        CGO_ENABLED: 0
+      run: |
+        echo "Building backend..."
+        cd backend
+        go version
+        go mod tidy
+        go build -o web-panel ./cmd/main.go
+        echo "Backend build completed"
+        ls -la web-panel
