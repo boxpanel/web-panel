@@ -1094,6 +1094,7 @@ install_ffmpeg_rockchip_from_source() {
         --prefix=/usr/local \
         --enable-gpl \
         --enable-nonfree \
+        --enable-version3 \
         --enable-openssl \
         --enable-libdrm \
         --enable-rkmpp \
@@ -1226,6 +1227,7 @@ install_ffmpeg_with_libmpp() {
         --prefix=/usr/local \
         --enable-gpl \
         --enable-nonfree \
+        --enable-version3 \
         --enable-openssl \
         --enable-libdrm \
         --enable-libmpp >"$FF_CONFIGURE_LOG" 2>&1
