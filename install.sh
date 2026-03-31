@@ -2286,12 +2286,14 @@ show_result() {
         printf "  重启面板: %bsystemctl restart web-panel%b\n" "${YELLOW}" "${NC}"
         printf "  查看状态: %bsystemctl status web-panel%b\n" "${YELLOW}" "${NC}"
         printf "  查看日志: %bjournalctl -u web-panel -f%b\n" "${YELLOW}" "${NC}"
+        printf "  删除面板: %bcurl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/uninstall.sh | sh%b\n" "${YELLOW}" "${NC}"
     else
         printf "  启动面板: %bsystemctl --user start web-panel%b\n" "${YELLOW}" "${NC}"
         printf "  停止面板: %bsystemctl --user stop web-panel%b\n" "${YELLOW}" "${NC}"
         printf "  重启面板: %bsystemctl --user restart web-panel%b\n" "${YELLOW}" "${NC}"
         printf "  查看状态: %bsystemctl --user status web-panel%b\n" "${YELLOW}" "${NC}"
         printf "  查看日志: %bjournalctl --user -u web-panel -f%b\n" "${YELLOW}" "${NC}"
+        printf "  删除面板: %bcurl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/uninstall.sh | sudo sh%b\n" "${YELLOW}" "${NC}"
     fi
     echo
     printf "%b%s%b\n" "${BLUE}" "RTSPtoWeb管理命令:" "${NC}"
