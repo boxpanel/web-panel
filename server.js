@@ -276,6 +276,43 @@ async function detectRtspVideoCodec(rtspUrl) {
     }
 }
 
+async function detectRtspVideoCodecSilent(rtspUrl) {
+    try {
+        const args = [
+            '-v', 'error',
+            '-rtsp_transport', 'tcp',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_name',
+            '-of', 'json',
+            rtspUrl
+        ];
+        const result = await ProcessUtils.spawnCommand('ffprobe', args, { timeout: 4000 });
+        const raw = result.stdout || '';
+        const parsed = raw ? JSON.parse(raw) : {};
+        const codec = parsed && parsed.streams && parsed.streams[0] && parsed.streams[0].codec_name
+            ? String(parsed.streams[0].codec_name).toLowerCase()
+            : null;
+        return codec;
+    } catch {
+        return null;
+    }
+}
+
+async function waitForRtspCodecReady({ rtspUrl, expectedCodecs, timeoutMs }) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (rkTranscoder && rkTranscoder.exitCode !== null && rkTranscoder.exitCode !== undefined) {
+            return false;
+        }
+        const codec = await detectRtspVideoCodecSilent(rtspUrl);
+        if (codec && expectedCodecs.includes(codec)) {
+            return true;
+        }
+        await new Promise(r => setTimeout(r, 500));
+    }
+    return false;
+}
+
 async function launchRockchipTranscoder(inputRtsp) {
     try {
         if (rkTranscoder && rkTranscoder.pid) {
@@ -310,6 +347,17 @@ async function launchRockchipTranscoder(inputRtsp) {
             addCameraLog('warn', `转码进程已退出，code=${code}`);
             rkTranscoder = null;
         });
+        const ready = await waitForRtspCodecReady({
+            rtspUrl: RK_LOCAL_RTSP,
+            expectedCodecs: ['h264'],
+            timeoutMs: 20000
+        });
+        if (!ready) {
+            addCameraLog('warn', '硬件转码未就绪（未检测到H264输出），将回退为直接RTSP播放');
+            stopRockchipTranscoder();
+            return false;
+        }
+        addCameraLog('info', '硬件转码已就绪（已检测到H264输出）');
         return true;
     } catch (e) {
         addCameraLog('error', `启动Rockchip转码失败: ${e.message}`);
@@ -344,6 +392,65 @@ function isRtspToWebCodecNotReadyError(errorResponseData) {
         return false;
     } catch {
         return false;
+    }
+}
+
+function isRtspToWebStreamNotFoundError(errorResponseData) {
+    try {
+        if (!errorResponseData) return false;
+        const text = typeof errorResponseData === 'string'
+            ? errorResponseData
+            : typeof errorResponseData === 'object'
+                ? (typeof errorResponseData.payload === 'string' ? errorResponseData.payload : JSON.stringify(errorResponseData))
+                : String(errorResponseData);
+        return text.includes('stream not found') || text.includes('stream channel not found');
+    } catch {
+        return false;
+    }
+}
+
+async function ensureRtspToWebCameraStreamExists() {
+    try {
+        await HttpClient.get('http://localhost:8084/stream/camera/info', {
+            headers: {
+                'Authorization': 'Basic ' + Buffer.from('demo:demo').toString('base64')
+            },
+            timeout: 4000
+        });
+        return true;
+    } catch (e) {
+        const resp = e && e.response ? e.response : null;
+        if (!resp || resp.status !== 500) return false;
+        if (!isRtspToWebStreamNotFoundError(resp.data)) return false;
+
+        try {
+            const rtspUrl = await updateRTSPtoWebConfig();
+            const streamData = {
+                name: "Camera Stream",
+                channels: {
+                    "0": {
+                        name: "main",
+                        url: rtspUrl,
+                        on_demand: true,
+                        debug: false,
+                        status: 0
+                    }
+                }
+            };
+
+            await HttpClient.post('http://localhost:8084/stream/camera/add', streamData, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Basic ' + Buffer.from('demo:demo').toString('base64')
+                },
+                timeout: 12000
+            });
+            addCameraLog('info', '检测到RTSPtoWeb流不存在，已自动创建camera流');
+            return true;
+        } catch (addErr) {
+            addCameraLog('warn', `自动创建RTSPtoWeb流失败: ${addErr.message}`);
+            return false;
+        }
     }
 }
 // 检查RTSPtoWeb服务状态（带状态缓存）
@@ -2583,6 +2690,12 @@ app.post('/api/camera/webrtc', requireAuth, async (req, res) => {
             } catch (innerError) {
                 const resp = innerError && innerError.response ? innerError.response : null;
                 const respData = resp ? resp.data : null;
+                if (isRtspToWebStreamNotFoundError(respData) && attempt < maxAttempts) {
+                    addCameraLog('warn', `WebRTC协商stream不存在，尝试自动创建并重试 (${attempt}/${maxAttempts})`);
+                    await ensureRtspToWebCameraStreamExists();
+                    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+                    continue;
+                }
                 if (isRtspToWebCodecNotReadyError(respData) && attempt < maxAttempts) {
                     addCameraLog('warn', `WebRTC协商codec未就绪，等待后重试 (${attempt}/${maxAttempts})`);
                     try {
