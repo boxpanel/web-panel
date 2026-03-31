@@ -879,6 +879,8 @@ install_dependencies() {
     
     # 安装基础工具
     install_basic_tools
+
+    install_ffmpeg_rockchip
     
     # 检查Node.js是否已安装
     if ! command -v node >/dev/null 2>&1; then
@@ -950,19 +952,19 @@ install_basic_tools() {
     print_message "正在安装基础工具..."
     case "$SYSTEM" in
         "rhel")
-            $PM install -y curl wget git tar gzip sqlite >/dev/null 2>&1 || true
+            $PM install -y curl wget git tar gzip unzip sqlite ffmpeg >/dev/null 2>&1 || true
             ;;
         "debian")
-            $PM install -y curl wget git tar gzip sqlite3 >/dev/null 2>&1 || true
+            $PM install -y curl wget git tar gzip unzip sqlite3 ffmpeg >/dev/null 2>&1 || true
             ;;
         "suse")
-            $PM install -y curl wget git tar gzip sqlite3 >/dev/null 2>&1 || true
+            $PM install -y curl wget git tar gzip unzip sqlite3 ffmpeg >/dev/null 2>&1 || true
             ;;
         "alpine")
-            $PM add curl wget git tar gzip sqlite >/dev/null 2>&1 || true
+            $PM add curl wget git tar gzip unzip sqlite ffmpeg >/dev/null 2>&1 || true
             ;;
         "arch")
-            $PM -S --noconfirm curl wget git tar gzip sqlite >/dev/null 2>&1 || true
+            $PM -S --noconfirm curl wget git tar gzip unzip sqlite ffmpeg >/dev/null 2>&1 || true
             ;;
         *)
             print_warning "未知系统，跳过基础工具安装"
@@ -976,6 +978,108 @@ install_basic_tools() {
     else
         print_warning "sqlite3安装失败，尝试备用安装方法..."
         install_sqlite3_fallback
+    fi
+}
+
+install_ffmpeg_rockchip() {
+    if command -v ffmpeg >/dev/null 2>&1 && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q "h264_rkmpp"; then
+        print_success "已检测到支持RKMPP的FFmpeg"
+        return
+    fi
+
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        "aarch64" | "arm64") ;;
+        *)
+            print_message "当前架构($ARCH)非Rockchip常用ARM64，跳过安装ffmpeg-rockchip"
+            return
+            ;;
+    esac
+
+    if [ ! -e /dev/mpp_service ] && [ ! -e /dev/mpp-service ] && [ ! -e /dev/rkvdec ] && [ ! -e /dev/rkvenc ] && [ ! -e /dev/vpu_service ] && [ ! -e /dev/vpu-service ]; then
+        print_message "未检测到Rockchip MPP相关设备节点，跳过安装ffmpeg-rockchip"
+        return
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        print_warning "curl不可用，跳过安装ffmpeg-rockchip"
+        return
+    fi
+
+    print_message "正在尝试安装ffmpeg-rockchip（用于RKMPP硬件转码）..."
+
+    API_URL="https://api.github.com/repos/nyanmisaka/ffmpeg-rockchip/releases/latest"
+    RELEASE_JSON="$(curl -fsSL -H "Accept: application/vnd.github+json" -H "User-Agent: web-panel-install" "$API_URL" 2>/dev/null || true)"
+    if [ -z "$RELEASE_JSON" ]; then
+        print_warning "获取ffmpeg-rockchip发布信息失败，跳过安装"
+        return
+    fi
+
+    ASSET_URL="$(printf "%s" "$RELEASE_JSON" | grep -Eo '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]+"' | sed -E 's/.*"([^"]+)".*/\1/' | grep -Ei 'linux' | grep -Ei '(aarch64|arm64)' | head -n 1)"
+    if [ -z "$ASSET_URL" ]; then
+        print_warning "未找到适配ARM64的ffmpeg-rockchip发布包，跳过安装"
+        return
+    fi
+
+    TMP_DIR="$(mktemp -d 2>/dev/null || echo "/tmp/ffmpeg-rockchip.$$")"
+    mkdir -p "$TMP_DIR" >/dev/null 2>&1 || true
+    ASSET_FILE="$TMP_DIR/asset"
+
+    if ! curl -fL --retry 3 --connect-timeout 10 "$ASSET_URL" -o "$ASSET_FILE" >/dev/null 2>&1; then
+        print_warning "下载ffmpeg-rockchip失败：$ASSET_URL"
+        rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
+        return
+    fi
+
+    EXTRACT_DIR="$TMP_DIR/extract"
+    mkdir -p "$EXTRACT_DIR" >/dev/null 2>&1 || true
+
+    case "$ASSET_URL" in
+        *.tar.gz|*.tgz)
+            tar -xzf "$ASSET_FILE" -C "$EXTRACT_DIR" >/dev/null 2>&1 || true
+            ;;
+        *.tar.xz)
+            tar -xJf "$ASSET_FILE" -C "$EXTRACT_DIR" >/dev/null 2>&1 || true
+            ;;
+        *.zip)
+            if command -v unzip >/dev/null 2>&1; then
+                unzip -q "$ASSET_FILE" -d "$EXTRACT_DIR" >/dev/null 2>&1 || true
+            fi
+            ;;
+        *)
+            tar -xf "$ASSET_FILE" -C "$EXTRACT_DIR" >/dev/null 2>&1 || true
+            ;;
+    esac
+
+    FFMPEG_BIN="$(find "$EXTRACT_DIR" -type f -name ffmpeg -perm -111 2>/dev/null | head -n 1)"
+    FFPROBE_BIN="$(find "$EXTRACT_DIR" -type f -name ffprobe -perm -111 2>/dev/null | head -n 1)"
+
+    if [ -z "$FFMPEG_BIN" ] || [ -z "$FFPROBE_BIN" ]; then
+        print_warning "未在发布包中找到ffmpeg/ffprobe可执行文件，跳过安装"
+        rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
+        return
+    fi
+
+    if [ "$(id -u)" -eq 0 ]; then
+        install -m 0755 "$FFMPEG_BIN" /usr/local/bin/ffmpeg >/dev/null 2>&1 || true
+        install -m 0755 "$FFPROBE_BIN" /usr/local/bin/ffprobe >/dev/null 2>&1 || true
+        USER_TO_ADD="${SUDO_USER:-}"
+        if [ -n "$USER_TO_ADD" ]; then
+            usermod -aG video "$USER_TO_ADD" >/dev/null 2>&1 || true
+            usermod -aG render "$USER_TO_ADD" >/dev/null 2>&1 || true
+        fi
+    else
+        mkdir -p "$HOME/.local/bin" >/dev/null 2>&1 || true
+        install -m 0755 "$FFMPEG_BIN" "$HOME/.local/bin/ffmpeg" >/dev/null 2>&1 || true
+        install -m 0755 "$FFPROBE_BIN" "$HOME/.local/bin/ffprobe" >/dev/null 2>&1 || true
+    fi
+
+    rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
+
+    if command -v ffmpeg >/dev/null 2>&1 && ffmpeg -hide_banner -encoders 2>/dev/null | grep -q "h264_rkmpp"; then
+        print_success "ffmpeg-rockchip安装成功（已支持RKMPP）"
+    else
+        print_warning "ffmpeg-rockchip安装流程已执行，但未检测到RKMPP编码器（可能需要重登/权限或发布包不匹配）"
     fi
 }
 

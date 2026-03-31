@@ -1898,7 +1898,8 @@ const h265RelayState = {
     currentSourceUrl: '',
     relayUrl: '',
     starting: null,
-    lastRequestedAt: 0
+    lastRequestedAt: 0,
+    rkmppSupported: null
 };
 
 function stopH265Relay() {
@@ -1958,6 +1959,31 @@ async function probeRtspVideoCodec(rtspUrl, timeoutMs = 3000) {
     });
 }
 
+async function detectFfmpegRkmppSupport() {
+    if (h265RelayState.rkmppSupported !== null) return h265RelayState.rkmppSupported;
+
+    const hasText = async (args, regex) => {
+        return new Promise((resolve) => {
+            const p = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+            let out = '';
+            let err = '';
+            p.stdout.on('data', (d) => { out += d.toString(); });
+            p.stderr.on('data', (d) => { err += d.toString(); });
+            p.on('error', () => resolve(false));
+            p.on('close', (code) => {
+                if (code !== 0) return resolve(false);
+                resolve(regex.test(out) || regex.test(err));
+            });
+        });
+    };
+
+    const hasEncoder = await hasText(['-hide_banner', '-encoders'], /\bh264_rkmpp\b/i);
+    const hasDecoder = await hasText(['-hide_banner', '-decoders'], /\bhevc_rkmpp\b/i);
+
+    h265RelayState.rkmppSupported = Boolean(hasEncoder && hasDecoder);
+    return h265RelayState.rkmppSupported;
+}
+
 async function ensureH265ToH264RelayRunning(sourceRtspUrl) {
     const src = String(sourceRtspUrl || '').trim();
     if (!src) throw new Error('RTSP URL 为空');
@@ -1985,13 +2011,10 @@ async function ensureH265ToH264RelayRunning(sourceRtspUrl) {
     h265RelayState.relayUrl = relayUrl;
 
     const start = async () => {
-        const baseInputArgs = [
-            '-hide_banner',
-            '-nostdin',
-            '-loglevel', 'warning',
-            '-rtsp_transport', 'tcp',
-            '-i', src
-        ];
+        const supported = await detectFfmpegRkmppSupport();
+        if (!supported) {
+            throw new Error('当前 FFmpeg 未检测到 RKMPP 硬件编解码器（hevc_rkmpp/h264_rkmpp），请安装 ffmpeg-rockchip 并确保 PATH 优先使用它');
+        }
 
         const hwArgs = [
             '-hide_banner',
@@ -2004,19 +2027,6 @@ async function ensureH265ToH264RelayRunning(sourceRtspUrl) {
             '-c:v', 'h264_rkmpp',
             '-g', '50',
             '-bf', '0',
-            '-f', 'rtsp',
-            '-rtsp_flags', 'listen',
-            '-rtsp_transport', 'tcp',
-            relayUrl
-        ];
-
-        const swArgs = [
-            ...baseInputArgs,
-            '-an',
-            '-c:v', 'libx264',
-            '-preset', 'veryfast',
-            '-tune', 'zerolatency',
-            '-g', '50',
             '-f', 'rtsp',
             '-rtsp_flags', 'listen',
             '-rtsp_transport', 'tcp',
@@ -2068,18 +2078,9 @@ async function ensureH265ToH264RelayRunning(sourceRtspUrl) {
             });
         };
 
-        try {
-            const p = await trySpawn(hwArgs, 'RKMPP');
-            h265RelayState.ffmpeg = p;
-            addCameraLog('info', `H.265 检测到，已启用 RKMPP 硬件转码并转发为 H.264: ${relayUrl}`);
-            return;
-        } catch (e) {
-            addCameraLog('warn', `RKMPP 硬件转码启动失败，回退软件转码: ${e && e.message ? e.message : e}`);
-        }
-
-        const p2 = await trySpawn(swArgs, 'SW');
-        h265RelayState.ffmpeg = p2;
-        addCameraLog('info', `已启用软件转码并转发为 H.264: ${relayUrl}`);
+        const p = await trySpawn(hwArgs, 'RKMPP');
+        h265RelayState.ffmpeg = p;
+        addCameraLog('info', `H.265 检测到，已启用 RKMPP 硬件转码并转发为 H.264: ${relayUrl}`);
     };
 
     h265RelayState.starting = start().finally(() => {
