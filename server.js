@@ -329,6 +329,23 @@ function stopRockchipTranscoder() {
         addCameraLog('warn', `停止转码进程失败: ${e.message}`);
     }
 }
+
+function isRtspToWebCodecNotReadyError(errorResponseData) {
+    try {
+        if (!errorResponseData) return false;
+        if (typeof errorResponseData === 'string') {
+            return errorResponseData.includes('stream channel codec not ready');
+        }
+        if (typeof errorResponseData === 'object') {
+            const payload = errorResponseData.payload;
+            if (typeof payload === 'string' && payload.includes('stream channel codec not ready')) return true;
+            return JSON.stringify(errorResponseData).includes('stream channel codec not ready');
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
 // 检查RTSPtoWeb服务状态（带状态缓存）
 async function checkRTSPtoWebStatus() {
     const now = Date.now();
@@ -2540,22 +2557,48 @@ app.post('/api/camera/webrtc', requireAuth, async (req, res) => {
         console.log('发送给RTSPtoWeb的base64 SDP长度:', base64SdpOffer.length);
         console.log('base64 SDP前100字符:', base64SdpOffer.substring(0, 100));
         
-        const response = await HttpClient.post('http://localhost:8084/stream/camera/channel/0/webrtc', 
-            new URLSearchParams({ data: base64SdpOffer }), {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': 'Basic ' + Buffer.from('demo:demo').toString('base64')
+        const maxAttempts = 6;
+        const retryDelayMs = 1500;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const response = await HttpClient.post('http://localhost:8084/stream/camera/channel/0/webrtc',
+                    new URLSearchParams({ data: base64SdpOffer }), {
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Authorization': 'Basic ' + Buffer.from('demo:demo').toString('base64')
+                        },
+                        timeout: 12000
+                    });
+
+                if (response.status === 200) {
+                    console.log('RTSPtoWeb响应成功，answer长度:', response.data.length);
+                    console.log('返回base64编码的SDP answer前100字符:', response.data.substring(0, 100));
+                    res.send(response.data);
+                    return;
+                }
+
+                console.log('RTSPtoWeb响应失败:', response.status, response.data);
+                res.status(response.status).json({ error: 'WebRTC协商失败' });
+                return;
+            } catch (innerError) {
+                const resp = innerError && innerError.response ? innerError.response : null;
+                const respData = resp ? resp.data : null;
+                if (isRtspToWebCodecNotReadyError(respData) && attempt < maxAttempts) {
+                    addCameraLog('warn', `WebRTC协商codec未就绪，等待后重试 (${attempt}/${maxAttempts})`);
+                    try {
+                        await HttpClient.get('http://localhost:8084/stream/camera/channel/0/reload', {
+                            headers: {
+                                'Authorization': 'Basic ' + Buffer.from('demo:demo').toString('base64')
+                            },
+                            timeout: 5000
+                        });
+                    } catch (e) {
+                    }
+                    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+                    continue;
+                }
+                throw innerError;
             }
-        });
-        
-        if (response.status === 200) {
-            console.log('RTSPtoWeb响应成功，answer长度:', response.data.length);
-            // RTSPtoWeb返回的是base64编码的SDP answer，前端期望base64格式，直接返回
-            console.log('返回base64编码的SDP answer前100字符:', response.data.substring(0, 100));
-            res.send(response.data);
-        } else {
-            console.log('RTSPtoWeb响应失败:', response.status, response.data);
-            res.status(response.status).json({ error: 'WebRTC协商失败' });
         }
     } catch (error) {
         console.error('WebRTC代理失败:', error);
