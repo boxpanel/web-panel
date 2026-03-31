@@ -1133,6 +1133,127 @@ install_ffmpeg_rockchip_from_source() {
     return 1
 }
 
+install_mpp_from_source() {
+    if [ "$(id -u)" -ne 0 ]; then
+        return 1
+    fi
+    if [ "$SYSTEM" != "debian" ]; then
+        return 1
+    fi
+    ARCH=$(uname -m 2>/dev/null || echo unknown)
+    if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
+        return 1
+    fi
+
+    $PM install -y build-essential cmake git pkg-config >/dev/null 2>&1 || true
+    $PM install -y libdrm-dev libx11-dev >/dev/null 2>&1 || true
+
+    MPP_DIR="/tmp/rockchip-mpp-build"
+    rm -rf "$MPP_DIR" >/dev/null 2>&1 || true
+    mkdir -p "$MPP_DIR" || return 1
+    cd "$MPP_DIR" || return 1
+
+    if ! git clone --depth 1 https://github.com/rockchip-linux/mpp.git mpp-src >/dev/null 2>&1; then
+        return 1
+    fi
+
+    mkdir -p "$MPP_DIR/mpp-src/build" || return 1
+    cd "$MPP_DIR/mpp-src/build" || return 1
+
+    MPP_CONFIGURE_LOG="$MPP_DIR/mpp-configure.log"
+    MPP_MAKE_LOG="$MPP_DIR/mpp-make.log"
+    MPP_INSTALL_LOG="$MPP_DIR/mpp-install.log"
+
+    cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DHAVE_DRM=ON -DHAVE_X11=ON .. >"$MPP_CONFIGURE_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "MPP cmake失败: $MPP_CONFIGURE_LOG"
+        tail -n 80 "$MPP_CONFIGURE_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    NPROC=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
+    make -j"$NPROC" >"$MPP_MAKE_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "MPP编译失败: $MPP_MAKE_LOG"
+        tail -n 80 "$MPP_MAKE_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    make install >"$MPP_INSTALL_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "MPP安装失败: $MPP_INSTALL_LOG"
+        tail -n 80 "$MPP_INSTALL_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    ldconfig >/dev/null 2>&1 || true
+    return 0
+}
+
+install_ffmpeg_with_libmpp() {
+    if [ "$(id -u)" -ne 0 ]; then
+        return 1
+    fi
+    if [ "$SYSTEM" != "debian" ]; then
+        return 1
+    fi
+    ARCH=$(uname -m 2>/dev/null || echo unknown)
+    if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
+        return 1
+    fi
+
+    $PM install -y build-essential pkg-config git yasm nasm >/dev/null 2>&1 || true
+    $PM install -y libdrm-dev libssl-dev >/dev/null 2>&1 || true
+
+    FF_DIR="/tmp/ffmpeg-libmpp-build"
+    rm -rf "$FF_DIR" >/dev/null 2>&1 || true
+    mkdir -p "$FF_DIR" || return 1
+    cd "$FF_DIR" || return 1
+
+    if ! git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src >/dev/null 2>&1; then
+        return 1
+    fi
+
+    cd "$FF_DIR/ffmpeg-src" || return 1
+
+    FF_CONFIGURE_LOG="$FF_DIR/ffmpeg-configure.log"
+    FF_MAKE_LOG="$FF_DIR/ffmpeg-make.log"
+    FF_INSTALL_LOG="$FF_DIR/ffmpeg-install.log"
+
+    export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/lib/aarch64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}"
+
+    ./configure \
+        --prefix=/usr/local \
+        --enable-gpl \
+        --enable-nonfree \
+        --enable-openssl \
+        --enable-libdrm \
+        --enable-libmpp >"$FF_CONFIGURE_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "FFmpeg configure失败: $FF_CONFIGURE_LOG"
+        tail -n 80 "$FF_CONFIGURE_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    NPROC=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
+    make -j"$NPROC" >"$FF_MAKE_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "FFmpeg编译失败: $FF_MAKE_LOG"
+        tail -n 80 "$FF_MAKE_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    make install >"$FF_INSTALL_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "FFmpeg安装失败: $FF_INSTALL_LOG"
+        tail -n 80 "$FF_INSTALL_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    ldconfig >/dev/null 2>&1 || true
+    return 0
+}
+
 install_media_tools() {
     print_message "检查并安装媒体工具..."
 
@@ -1140,7 +1261,12 @@ install_media_tools() {
         if install_ffmpeg_rockchip_from_source; then
             :
         else
-            install_ffmpeg_standard
+            print_warning "ffmpeg-rockchip源码编译失败，尝试按MPP+FFmpeg(libmpp)方式安装..."
+            if install_mpp_from_source && install_ffmpeg_with_libmpp && has_rkmpp_support; then
+                print_success "MPP+FFmpeg(libmpp)安装成功（检测到rkmpp编解码器）"
+            else
+                install_ffmpeg_standard
+            fi
         fi
     else
         install_ffmpeg_standard
