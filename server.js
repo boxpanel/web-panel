@@ -1893,6 +1893,213 @@ app.post('/api/radar/lane-settings', requireAuth, async (req, res) => {
     }
 });
 
+const h265RelayState = {
+    ffmpeg: null,
+    currentSourceUrl: '',
+    relayUrl: '',
+    starting: null,
+    lastRequestedAt: 0
+};
+
+function stopH265Relay() {
+    if (!h265RelayState.ffmpeg) return;
+    try {
+        h265RelayState.ffmpeg.kill('SIGKILL');
+    } catch (_) {}
+    h265RelayState.ffmpeg = null;
+    h265RelayState.currentSourceUrl = '';
+    h265RelayState.relayUrl = '';
+    h265RelayState.starting = null;
+}
+
+async function probeRtspVideoCodec(rtspUrl, timeoutMs = 3000) {
+    const url = String(rtspUrl || '').trim();
+    if (!url) return 'unknown';
+
+    return new Promise((resolve) => {
+        let settled = false;
+        const args = [
+            '-hide_banner',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_name',
+            '-of', 'default=nk=1:nw=1',
+            url
+        ];
+        const p = spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        let out = '';
+        let err = '';
+
+        const done = (codec) => {
+            if (settled) return;
+            settled = true;
+            resolve(codec || 'unknown');
+        };
+
+        const t = setTimeout(() => {
+            try { p.kill('SIGKILL'); } catch (_) {}
+            done('unknown');
+        }, Math.max(500, timeoutMs));
+
+        p.stdout.on('data', (d) => { out += d.toString(); });
+        p.stderr.on('data', (d) => { err += d.toString(); });
+        p.on('error', () => {
+            clearTimeout(t);
+            done('unknown');
+        });
+        p.on('close', (code) => {
+            clearTimeout(t);
+            if (code !== 0) return done('unknown');
+            const codec = String(out || '').trim().toLowerCase();
+            if (codec) return done(codec);
+            const fallback = String(err || '').trim().toLowerCase();
+            done(fallback || 'unknown');
+        });
+    });
+}
+
+async function ensureH265ToH264RelayRunning(sourceRtspUrl) {
+    const src = String(sourceRtspUrl || '').trim();
+    if (!src) throw new Error('RTSP URL 为空');
+
+    const enabled = String(process.env.CAMERA_H265_HW_TRANSCODE || '').trim() !== '0';
+    if (!enabled) return src;
+
+    const relayPort = parseInt(String(process.env.CAMERA_H265_RELAY_PORT || '').trim() || '8555', 10);
+    const relayPath = String(process.env.CAMERA_H265_RELAY_PATH || '').trim() || 'camera_h264';
+    const relayUrl = `rtsp://127.0.0.1:${relayPort}/${relayPath}`;
+
+    h265RelayState.lastRequestedAt = Date.now();
+    if (h265RelayState.ffmpeg && h265RelayState.currentSourceUrl === src && h265RelayState.relayUrl === relayUrl) {
+        return relayUrl;
+    }
+    if (h265RelayState.starting) {
+        await h265RelayState.starting.catch(() => {});
+        if (h265RelayState.ffmpeg && h265RelayState.currentSourceUrl === src && h265RelayState.relayUrl === relayUrl) {
+            return relayUrl;
+        }
+    }
+
+    stopH265Relay();
+    h265RelayState.currentSourceUrl = src;
+    h265RelayState.relayUrl = relayUrl;
+
+    const start = async () => {
+        const baseInputArgs = [
+            '-hide_banner',
+            '-nostdin',
+            '-loglevel', 'warning',
+            '-rtsp_transport', 'tcp',
+            '-i', src
+        ];
+
+        const hwArgs = [
+            '-hide_banner',
+            '-nostdin',
+            '-loglevel', 'warning',
+            '-rtsp_transport', 'tcp',
+            '-c:v', 'hevc_rkmpp',
+            '-i', src,
+            '-an',
+            '-c:v', 'h264_rkmpp',
+            '-g', '50',
+            '-bf', '0',
+            '-f', 'rtsp',
+            '-rtsp_flags', 'listen',
+            '-rtsp_transport', 'tcp',
+            relayUrl
+        ];
+
+        const swArgs = [
+            ...baseInputArgs,
+            '-an',
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-tune', 'zerolatency',
+            '-g', '50',
+            '-f', 'rtsp',
+            '-rtsp_flags', 'listen',
+            '-rtsp_transport', 'tcp',
+            relayUrl
+        ];
+
+        const trySpawn = (args, mode) => {
+            return new Promise((resolve, reject) => {
+                const p = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+                let settled = false;
+                let stderr = '';
+                const fail = (err) => {
+                    if (settled) return;
+                    settled = true;
+                    try { p.kill('SIGKILL'); } catch (_) {}
+                    reject(err);
+                };
+                const ok = () => {
+                    if (settled) return;
+                    settled = true;
+                    resolve(p);
+                };
+                const earlyTimer = setTimeout(ok, 900);
+                p.stderr.on('data', (d) => {
+                    const s = d.toString();
+                    stderr += s;
+                    if (stderr.length > 8000) stderr = stderr.slice(-8000);
+                    if (settled) return;
+                    if (/Unknown encoder|Unknown decoder|No such file or directory|Device or resource busy|Invalid argument/i.test(stderr)) {
+                        clearTimeout(earlyTimer);
+                        fail(new Error(stderr.trim() || `FFmpeg ${mode} 启动失败`));
+                    }
+                });
+                p.on('error', (e) => {
+                    clearTimeout(earlyTimer);
+                    fail(e);
+                });
+                p.on('close', (code) => {
+                    clearTimeout(earlyTimer);
+                    if (settled) {
+                        if (h265RelayState.ffmpeg === p) {
+                            h265RelayState.ffmpeg = null;
+                            h265RelayState.starting = null;
+                        }
+                        return;
+                    }
+                    fail(new Error(`FFmpeg ${mode} 进程退出 code=${code}`));
+                });
+            });
+        };
+
+        try {
+            const p = await trySpawn(hwArgs, 'RKMPP');
+            h265RelayState.ffmpeg = p;
+            addCameraLog('info', `H.265 检测到，已启用 RKMPP 硬件转码并转发为 H.264: ${relayUrl}`);
+            return;
+        } catch (e) {
+            addCameraLog('warn', `RKMPP 硬件转码启动失败，回退软件转码: ${e && e.message ? e.message : e}`);
+        }
+
+        const p2 = await trySpawn(swArgs, 'SW');
+        h265RelayState.ffmpeg = p2;
+        addCameraLog('info', `已启用软件转码并转发为 H.264: ${relayUrl}`);
+    };
+
+    h265RelayState.starting = start().finally(() => {
+        h265RelayState.starting = null;
+    });
+    await h265RelayState.starting;
+    return relayUrl;
+}
+
+setInterval(() => {
+    const ttlMs = parseInt(String(process.env.CAMERA_H265_RELAY_TTL_MS || '').trim() || '90000', 10);
+    const now = Date.now();
+    if (!h265RelayState.ffmpeg) return;
+    if (!h265RelayState.lastRequestedAt) return;
+    if (Number.isFinite(ttlMs) && ttlMs > 10000 && now - h265RelayState.lastRequestedAt > ttlMs) {
+        stopH265Relay();
+        addCameraLog('info', 'H.265->H.264 转码转发已自动停止（空闲超时）');
+    }
+}, 5000);
+
 // 更新RTSPtoWeb配置文件
 async function updateRTSPtoWebConfig() {
     try {
@@ -1912,12 +2119,20 @@ async function updateRTSPtoWebConfig() {
         
         // 构建RTSP URL
         let rtspUrl;
-        if (streamUrl && streamUrl.startsWith('rtsp://')) {
-            rtspUrl = streamUrl;
+        const originalRtspUrl = (streamUrl && streamUrl.startsWith('rtsp://'))
+            ? streamUrl
+            : (() => {
+                const auth = username && password ? `${username}:${password}@` : '';
+                const urlPath = streamUrl || '/stream1';
+                return `rtsp://${auth}${ip}:${port}${urlPath}`;
+            })();
+
+        rtspUrl = originalRtspUrl;
+        const codec = await probeRtspVideoCodec(originalRtspUrl, 3000).catch(() => 'unknown');
+        if (codec === 'hevc' || codec === 'h265') {
+            rtspUrl = await ensureH265ToH264RelayRunning(originalRtspUrl);
         } else {
-            const auth = username && password ? `${username}:${password}@` : '';
-            const urlPath = streamUrl || '/stream1';
-            rtspUrl = `rtsp://${auth}${ip}:${port}${urlPath}`;
+            stopH265Relay();
         }
         
         console.log('更新RTSPtoWeb配置，RTSP URL:', rtspUrl);
