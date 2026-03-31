@@ -1060,8 +1060,12 @@ install_ffmpeg_rockchip_from_source() {
     $PM install -y libx264-dev libx265-dev >/dev/null 2>&1 || true
 
     # Rockchip MPP/RGA 开发包：不同发行版包名可能不同，这里做best-effort尝试
-    $PM install -y libmpp-dev librga-dev >/dev/null 2>&1 || true
-    $PM install -y rockchip-mpp-dev librga-dev >/dev/null 2>&1 || true
+    $PM install -y libmpp-dev >/dev/null 2>&1 || true
+    $PM install -y rockchip-mpp-dev >/dev/null 2>&1 || true
+    $PM install -y librockchip-mpp-dev >/dev/null 2>&1 || true
+    $PM install -y mpp-dev >/dev/null 2>&1 || true
+    $PM install -y librga-dev >/dev/null 2>&1 || true
+    $PM install -y librga2 >/dev/null 2>&1 || true
 
     BUILD_DIR="/tmp/ffmpeg-rockchip-build"
     rm -rf "$BUILD_DIR" >/dev/null 2>&1 || true
@@ -1082,6 +1086,10 @@ install_ffmpeg_rockchip_from_source() {
 
     NPROC=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
 
+    CONFIGURE_LOG="$BUILD_DIR/configure.log"
+    MAKE_LOG="$BUILD_DIR/make.log"
+    INSTALL_LOG="$BUILD_DIR/install.log"
+
     ./configure \
         --prefix=/usr/local \
         --enable-gpl \
@@ -1090,20 +1098,29 @@ install_ffmpeg_rockchip_from_source() {
         --enable-libdrm \
         --enable-rkmpp \
         --enable-libx264 \
-        --enable-libx265 >/dev/null 2>&1 || {
-            print_warning "configure失败，回退安装系统ffmpeg"
-            return 1
-        }
+        --enable-libx265 >"$CONFIGURE_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "configure失败，回退安装系统ffmpeg"
+        print_warning "configure日志: $CONFIGURE_LOG"
+        tail -n 80 "$CONFIGURE_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
 
-    make -j"$NPROC" >/dev/null 2>&1 || {
+    make -j"$NPROC" >"$MAKE_LOG" 2>&1
+    if [ $? -ne 0 ]; then
         print_warning "编译ffmpeg-rockchip失败，回退安装系统ffmpeg"
+        print_warning "make日志: $MAKE_LOG"
+        tail -n 80 "$MAKE_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
         return 1
-    }
+    fi
 
-    make install >/dev/null 2>&1 || {
+    make install >"$INSTALL_LOG" 2>&1
+    if [ $? -ne 0 ]; then
         print_warning "安装ffmpeg-rockchip失败，回退安装系统ffmpeg"
+        print_warning "install日志: $INSTALL_LOG"
+        tail -n 80 "$INSTALL_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
         return 1
-    }
+    fi
 
     ldconfig >/dev/null 2>&1 || true
 
