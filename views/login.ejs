@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - <%= systemName %></title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #667eea;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 400px;
+            padding: 20px;
+        }
+        .login-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+        }
+        .login-header {
+            background: #667eea;
+            color: white;
+            text-align: center;
+            padding: 30px 20px;
+        }
+        .server-icon {
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            font-size: 20px;
+        }
+        .login-body {
+            padding: 30px 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+        .input-group {
+            position: relative;
+            display: flex;
+        }
+        .input-group-text {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 15px;
+            border-radius: 4px 0 0 4px;
+            display: flex;
+            align-items: center;
+        }
+        .form-control {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-left: none;
+            border-radius: 0 4px 4px 0;
+            padding: 12px 15px;
+            font-size: 14px;
+            outline: none;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        .password-toggle {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-left: none;
+            border-radius: 0 4px 4px 0;
+            padding: 12px 15px;
+            cursor: pointer;
+            color: #667eea;
+            display: flex;
+            align-items: center;
+        }
+        .btn-login {
+            width: 100%;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .btn-login:hover {
+            background: #5a6fd8;
+        }
+        .btn-login:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .alert {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 20px;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .text-muted {
+            color: #6c757d;
+        }
+        .text-white-50 {
+            color: rgba(255, 255, 255, 0.5);
+        }
+        .d-none {
+            display: none !important;
+        }
+        .spinner-border {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 0.125em solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spinner-border 0.75s linear infinite;
+        }
+        @keyframes spinner-border {
+            to { transform: rotate(360deg); }
+        }
+        .btn-close {
+            float: right;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="server-icon">
+                    ⚙️
+                </div>
+                <h3><%= systemName %></h3>
+            </div>
+            
+            <div class="login-body">
+                <% if (typeof error !== 'undefined' && error) { %>
+                    <div class="alert">
+                        ⚠️ <%= error %>
+                        <button type="button" class="btn-close" onclick="this.parentElement.style.display='none'">&times;</button>
+                    </div>
+                <% } %>
+                
+                <form method="POST" action="/login" id="loginForm">
+                    <div class="form-group">
+                        <label for="username" class="form-label">
+                            用户名
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text">👤</span>
+                            <input type="text" class="form-control" id="username" name="username" 
+                                   placeholder="请输入用户名" required autocomplete="username">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password" class="form-label">
+                            密码
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text">🔒</span>
+                            <input type="password" class="form-control" id="password" name="password" 
+                                   placeholder="请输入密码" required autocomplete="current-password">
+                            <span class="password-toggle" onclick="togglePassword()">
+                                <span id="passwordToggleIcon">👁️</span>
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-login" id="loginBtn">
+                        <span class="login-text">
+                            🚀 登录管理面板
+                        </span>
+                        <span class="login-loading d-none">
+                            <span class="spinner-border"></span>
+                            登录中...
+                        </span>
+                    </button>
+                </form>
+                
+                <div class="text-center" style="margin-top: 20px;">
+                    <small class="text-muted">
+                        🛡️ 安全登录 · 数据加密传输
+                    </small>
+                </div>
+            </div>
+        </div>
+        
+        <div class="text-center" style="margin-top: 15px;">
+            <small class="text-white-50">
+                ℹ️ Linux Server Management Panel v1.0
+            </small>
+        </div>
+    </div>
+    <script>
+        // 密码显示/隐藏切换
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('passwordToggleIcon');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.textContent = '🙈';
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.textContent = '👁️';
+            }
+        }
+        
+        // 登录表单提交处理
+        document.getElementById('loginForm').addEventListener('submit', function() {
+            const loginBtn = document.getElementById('loginBtn');
+            const loginText = loginBtn.querySelector('.login-text');
+            const loginLoading = loginBtn.querySelector('.login-loading');
+            
+            loginText.classList.add('d-none');
+            loginLoading.classList.remove('d-none');
+            loginBtn.disabled = true;
+        });
+        
+        // 页面加载完成后聚焦用户名输入框
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('username').focus();
+        });
+    </script>
+</body>
+</html>

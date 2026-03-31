@@ -1,0 +1,38 @@
+{
+  "name": "linux-server-panel",
+  "version": "1.0.0",
+  "description": "Linux服务器管理面板",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "install-setup": "node setup.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "body-parser": "^1.20.2",
+    "compression": "^1.8.1",
+    "ejs": "^3.1.9",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.1.0",
+    "express-session": "^1.17.3",
+    "iconv-lite": "^0.7.0",
+    "multer": "^2.0.2",
+    "rtsp-relay": "^1.9.0",
+    "serialport": "^13.0.0",
+    "socket.io": "^4.8.1",
+    "sqlite3": "^5.1.6",
+    "systeminformation": "^5.21.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "linux",
+    "server",
+    "management",
+    "panel"
+  ],
+  "author": "Server Panel",
+  "license": "MIT"
+}
