@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统监控 - <%= systemName %></title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .metric-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-good { background-color: #28a745; }
+        .status-warning { background-color: #ffc107; }
+        .status-danger { background-color: #dc3545; }
+        .navbar-brand {
+            font-weight: bold;
+        }
+        .sidebar {
+            background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+            min-height: 100vh;
+            padding-top: 20px;
+        }
+        .sidebar .nav-link {
+            color: #ecf0f1;
+            padding: 12px 20px;
+            margin: 5px 0;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        .sidebar .nav-link:hover {
+            background-color: rgba(255,255,255,0.1);
+            color: white;
+        }
+        .sidebar .nav-link.active {
+            background-color: #3498db;
+            color: white;
+        }
+        .main-content {
+            background-color: #f8f9fa;
+            min-height: 100vh;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- 侧边栏 -->
+            <div class="col-md-2 sidebar">
+                <div class="text-center mb-4">
+                    <h5 class="text-white"><%= systemName %></h5>
+                </div>
+                <nav class="nav flex-column">
+                    <a class="nav-link" href="/dashboard">
+                        <i class="fas fa-tachometer-alt me-2"></i>仪表板
+                    </a>
+                    <a class="nav-link active" href="/monitor">
+                        <i class="fas fa-chart-line me-2"></i>系统监控
+                    </a>
+                    <a class="nav-link" href="/api/files">
+                        <i class="fas fa-folder me-2"></i>文件管理
+                    </a>
+                </nav>
+            </div>
+            
+            <!-- 主内容区 -->
+            <div class="col-md-10 main-content">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2><i class="fas fa-chart-line me-2"></i>系统监控</h2>
+                    <div>
+                        <span class="badge bg-success me-2">实时监控</span>
+                        <span id="lastUpdate" class="text-muted">最后更新: --</span>
+                    </div>
+                </div>
+                
+                <!-- 关键指标卡片 -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="metric-card">
+                            <div class="metric-value" id="memoryUsage">--</div>
+                            <div class="metric-label">物理内存使用率</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card">
+                            <div class="metric-value" id="activeProcesses">--</div>
+                            <div class="metric-label">活跃进程</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card">
+                            <div class="metric-value" id="activeConnections">--</div>
+                            <div class="metric-label">活跃连接</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card">
+                            <div class="metric-value" id="activeStreams">--</div>
+                            <div class="metric-label">活跃流</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 缓冲区监控卡片 -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                            <div class="metric-value" id="currentQuality">--</div>
+                            <div class="metric-label">当前质量</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <div class="metric-value" id="framesProcessed">--</div>
+                            <div class="metric-label">已处理帧数</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <div class="metric-value" id="framesDropped">--</div>
+                            <div class="metric-label">丢帧数</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <div class="metric-value" id="bufferOverflows">--</div>
+                            <div class="metric-label">缓冲区溢出</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 硬件加速监控卡片 -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);">
+                            <div class="metric-value" id="hwAccelStatus">--</div>
+                            <div class="metric-label">加速状态</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);">
+                            <div class="metric-value" id="hwAccelType">--</div>
+                            <div class="metric-label">加速类型</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);">
+                            <div class="metric-value" id="hwAccelFailures">--</div>
+                            <div class="metric-label">失败次数</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="metric-card" style="background: linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%);">
+                            <div class="metric-value" id="softwareFallbacks">--</div>
+                            <div class="metric-label">软件回退</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 图表区域 -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="chart-container">
+                            <h5><i class="fas fa-memory me-2"></i>物理内存使用趋势</h5>
+                            <canvas id="memoryChart" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="chart-container">
+                            <h5><i class="fas fa-network-wired me-2"></i>连接统计</h5>
+                            <canvas id="connectionChart" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 详细统计表格 -->
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="chart-container">
+                            <h5><i class="fas fa-cogs me-2"></i>进程统计</h5>
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr>
+                                        <td>总创建流数</td>
+                                        <td><span id="totalStreams">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>进程错误数</td>
+                                        <td><span id="processErrors">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>已删除HLS文件</td>
+                                        <td><span id="hlsFilesDeleted">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>连接超时数</td>
+                                        <td><span id="connectionTimeouts">--</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="chart-container">
+                            <h5><i class="fas fa-video me-2"></i>缓冲区统计</h5>
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr>
+                                        <td>质量调整次数</td>
+                                        <td><span id="qualityAdjustments">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>当前分辨率</td>
+                                        <td><span id="currentResolution">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>目标帧率</td>
+                                        <td><span id="targetFps">--</span> fps</td>
+                                    </tr>
+                                    <tr>
+                                        <td>丢帧率</td>
+                                        <td><span id="dropRate">--</span>%</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="chart-container">
+                            <h5><i class="fas fa-microchip me-2"></i>硬件加速统计</h5>
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr>
+                                        <td>加速状态</td>
+                                        <td><span id="hwAccelEnabled">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>加速类型</td>
+                                        <td><span id="hwAccelTypeDetail">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>失败次数</td>
+                                        <td><span id="hwAccelFailuresDetail">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>最后检测</td>
+                                        <td><span id="hwLastCheck">--</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="chart-container">
+                            <h5><i class="fas fa-sliders-h me-2"></i>系统配置</h5>
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr>
+                                        <td>最大流数</td>
+                                        <td><span id="maxStreams">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>最大连接数</td>
+                                        <td><span id="maxConnections">--</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td>内存阈值</td>
+                                        <td><span id="memoryThreshold">--</span>%</td>
+                                    </tr>
+                                    <tr>
+                                        <td>系统状态</td>
+                                        <td><span class="status-indicator status-good"></span>正常运行</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 图表配置
+        const memoryChart = new Chart(document.getElementById('memoryChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '物理内存使用率 (%)',
+                    data: [],
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
+        const connectionChart = new Chart(document.getElementById('connectionChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['活跃连接', '可用连接'],
+                datasets: [{
+                    data: [0, 20],
+                    backgroundColor: ['#e74c3c', '#95a5a6']
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+        
+        // 更新数据函数
+        function updateStats() {
+            fetch('/api/webrtc/system/stats')
+                .then(response => {
+                    if (response.status === 401) {
+                        // 会话已过期，重定向到登录页面
+                        window.location.href = '/login';
+                        return;
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data) return; // 如果已重定向，data为undefined
+                    // 更新关键指标
+                    document.getElementById('memoryUsage').textContent = data.memory.usage.toFixed(1) + '%';
+                    document.getElementById('activeProcesses').textContent = data.processes.activeProcesses;
+                    document.getElementById('activeConnections').textContent = data.connections.activeConnections;
+                    document.getElementById('activeStreams').textContent = data.processes.activeProcesses;
+                    
+                    // 更新缓冲区指标
+                    if (data.buffer) {
+                        document.getElementById('currentQuality').textContent = data.buffer.currentQuality;
+                        document.getElementById('framesProcessed').textContent = data.buffer.totalFramesProcessed.toLocaleString();
+                        document.getElementById('framesDropped').textContent = data.buffer.framesDropped;
+                        document.getElementById('bufferOverflows').textContent = data.buffer.bufferOverflows;
+                        
+                        // 更新缓冲区统计表格
+                        document.getElementById('qualityAdjustments').textContent = data.buffer.qualityAdjustments;
+                        
+                        // 根据质量等级显示分辨率
+                        const resolutions = {
+                            'high': '1920x1080',
+                            'medium': '1280x720',
+                            'low': '854x480'
+                        };
+                        document.getElementById('currentResolution').textContent = resolutions[data.buffer.currentQuality] || '--';
+                        
+                        // 计算目标帧率和丢帧率
+                        const targetFps = data.buffer.currentQuality === 'high' ? 30 : (data.buffer.currentQuality === 'medium' ? 25 : 20);
+                        document.getElementById('targetFps').textContent = targetFps;
+                        
+                        const dropRate = data.buffer.totalFramesProcessed > 0 ? 
+                            ((data.buffer.framesDropped / data.buffer.totalFramesProcessed) * 100).toFixed(2) : '0.00';
+                        document.getElementById('dropRate').textContent = dropRate;
+                    }
+                    
+                    // 更新硬件加速指标
+                    if (data.hardware) {
+                        const hwEnabled = data.hardware.accelerationEnabled;
+                        const hwType = data.hardware.accelerationType || 'none';
+                        
+                        // 更新监控卡片
+                        document.getElementById('hwAccelStatus').textContent = hwEnabled ? '已启用' : '未启用';
+                        document.getElementById('hwAccelType').textContent = hwType.toUpperCase();
+                        document.getElementById('hwAccelFailures').textContent = data.hardware.accelerationFailures || '0';
+                        document.getElementById('softwareFallbacks').textContent = data.hardware.softwareFallbacks || '0';
+                        
+                        // 更新详细统计表格
+                        document.getElementById('hwAccelEnabled').textContent = hwEnabled ? '已启用' : '未启用';
+                        document.getElementById('hwAccelTypeDetail').textContent = hwType.toUpperCase();
+                        document.getElementById('hwAccelFailuresDetail').textContent = data.hardware.accelerationFailures || '0';
+                        document.getElementById('hwLastCheck').textContent = data.hardware.lastCheck ? 
+                            new Date(data.hardware.lastCheck).toLocaleTimeString() : '--';
+                    }
+                    
+                    // 更新详细统计
+                    document.getElementById('totalStreams').textContent = data.processes.totalStreamsCreated;
+                    document.getElementById('processErrors').textContent = data.processes.processErrors;
+                    document.getElementById('hlsFilesDeleted').textContent = data.hls.filesDeleted;
+                    document.getElementById('connectionTimeouts').textContent = data.connections.connectionTimeouts;
+                    
+                    // 更新配置信息
+                    document.getElementById('maxStreams').textContent = data.config.maxStreams;
+                    document.getElementById('maxConnections').textContent = data.config.maxConnections;
+                    document.getElementById('memoryThreshold').textContent = data.config.memoryThreshold;
+                    
+                    // 更新内存图表
+                    const now = new Date().toLocaleTimeString();
+                    if (memoryChart.data.labels.length >= 20) {
+                        memoryChart.data.labels.shift();
+                        memoryChart.data.datasets[0].data.shift();
+                    }
+                    memoryChart.data.labels.push(now);
+                    memoryChart.data.datasets[0].data.push(data.memory.usage);
+                    memoryChart.update('none');
+                    
+                    // 更新连接图表
+                    connectionChart.data.datasets[0].data = [
+                        data.connections.activeConnections,
+                        data.config.maxConnections - data.connections.activeConnections
+                    ];
+                    connectionChart.update('none');
+                    
+                    // 更新时间戳
+                    document.getElementById('lastUpdate').textContent = '最后更新: ' + now;
+                })
+                .catch(error => {
+                    console.error('获取统计数据失败:', error);
+                });
+        }
+        
+        // 初始加载和定期更新
+        updateStats();
+        setInterval(updateStats, 10000); // 每10秒更新一次，减少频率
+    </script>
+</body>
+</html>
