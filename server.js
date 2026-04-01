@@ -2664,35 +2664,40 @@ async function updateRTSPtoWebConfig() {
         console.log('更新RTSPtoWeb配置，原始RTSP URL:', rtspUrl);
         addCameraLog('info', `开始更新RTSPtoWeb配置，输入RTSP: ${maskRtspUrl(rtspUrl)}`);
         
+        const codec = await detectRtspVideoCodec(rtspUrl);
         let targetRtspUrl = rtspUrl;
-        if (isRockchipRkmppAvailable()) {
-            rkLog('info', '检测到Rockchip设备节点，进入硬件转码判定流程');
-            const codec = await detectRtspVideoCodec(rtspUrl);
-            if (codec === 'hevc' || codec === 'h265') {
-                rkLog('info', '输入为H265(HEVC)，准备尝试硬件转码');
-                const hasRkmpp = await checkFfmpegRkmppSupport();
-                if (!hasRkmpp) {
-                    stopRockchipTranscoder();
-                    rkLog('warn', '当前ffmpeg未包含rkmpp编解码器，无法硬件转码，将回退为直接RTSP播放');
-                } else {
-                const started = await launchRockchipTranscoder(rtspUrl);
-                if (started) {
-                    targetRtspUrl = RK_LOCAL_RTSP;
-                    rkLog('info', `硬件转码成功，输出RTSP: ${RK_LOCAL_RTSP}`);
-                } else {
-                    rkLog('warn', '硬件转码未就绪或启动失败，将回退为直接RTSP播放');
-                }
-                }
-            } else if (codec) {
+
+        if (codec === 'hevc' || codec === 'h265') {
+            rkLog('info', '输入为H265(HEVC)，必须先完成硬件转码后再推送RTSPtoWeb');
+
+            if (!isRockchipRkmppAvailable()) {
                 stopRockchipTranscoder();
-                rkLog('info', `输入编码为${codec}，无需硬件转码，直接RTSP播放`);
-            } else {
-                stopRockchipTranscoder();
-                rkLog('warn', '输入编码检测失败，跳过硬件转码，直接RTSP播放');
+                rkLog('error', '当前平台不满足硬件转码条件（平台非Linux/Rockchip或设备节点缺失）');
+                throw new Error('H265(HEVC)需要硬件转码，但当前设备不支持');
             }
+
+            rkLog('info', '检测到Rockchip设备节点，进入硬件转码流程');
+            const hasRkmpp = await checkFfmpegRkmppSupport();
+            if (!hasRkmpp) {
+                stopRockchipTranscoder();
+                rkLog('error', '当前ffmpeg未包含rkmpp编解码器，无法硬件转码');
+                throw new Error('H265(HEVC)需要硬件转码，但ffmpeg未启用rkmpp');
+            }
+
+            const started = await launchRockchipTranscoder(rtspUrl);
+            if (!started) {
+                rkLog('error', '硬件转码未就绪或启动失败');
+                throw new Error('H265(HEVC)硬件转码未就绪或启动失败');
+            }
+
+            targetRtspUrl = RK_LOCAL_RTSP;
+            rkLog('info', `硬件转码成功，输出RTSP: ${RK_LOCAL_RTSP}`);
+        } else if (codec) {
+            stopRockchipTranscoder();
+            rkLog('info', `输入编码为${codec}，无需硬件转码，直接RTSP播放`);
         } else {
             stopRockchipTranscoder();
-            rkLog('info', '硬件转码不可用（平台非Linux/Rockchip或设备节点缺失），直接RTSP播放');
+            rkLog('warn', '输入编码检测失败，跳过硬件转码，直接RTSP播放');
         }
         
         addCameraLog('info', `RTSPtoWeb将使用的URL: ${maskRtspUrl(targetRtspUrl)}`);

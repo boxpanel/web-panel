@@ -8389,17 +8389,45 @@ let radarVisibilityBound = false;
                         urls: ["stun:stun.l.google.com:19302"]
                     }]
                 });
+
+                const logRtcState = (level, label, value) => {
+                    addCameraLogToUI(level, `WebRTC ${label}: ${value}`);
+                };
+
+                rtspPlayer.oniceconnectionstatechange = () => {
+                    const state = rtspPlayer.iceConnectionState;
+                    logRtcState(state === 'failed' || state === 'disconnected' ? 'warn' : 'info', 'ICE状态', state);
+                };
+                rtspPlayer.onconnectionstatechange = () => {
+                    const state = rtspPlayer.connectionState;
+                    logRtcState(state === 'failed' || state === 'disconnected' ? 'warn' : 'info', '连接状态', state);
+                };
+                rtspPlayer.onsignalingstatechange = () => {
+                    logRtcState('info', '信令状态', rtspPlayer.signalingState);
+                };
+                rtspPlayer.onicegatheringstatechange = () => {
+                    logRtcState('info', 'ICE收集状态', rtspPlayer.iceGatheringState);
+                };
+                rtspPlayer.onicecandidateerror = (event) => {
+                    logRtcState('warn', 'ICE候选错误', `${event.errorCode || ''} ${event.errorText || ''}`.trim() || 'unknown');
+                };
                 
                 // 处理远程流
                 rtspPlayer.ontrack = function(event) {
                     console.log('收到远程视频流');
+                    addCameraLogToUI('info', `收到远程媒体轨道: ${event.track ? event.track.kind : 'unknown'}`);
                     videoElement.srcObject = event.streams[0];
-                    videoElement.play();
+                    videoElement.play().catch(() => {});
                 };
+
+                videoElement.addEventListener('loadeddata', () => addCameraLogToUI('info', '视频事件: loadeddata'));
+                videoElement.addEventListener('playing', () => addCameraLogToUI('info', '视频事件: playing'));
+                videoElement.addEventListener('stalled', () => addCameraLogToUI('warn', '视频事件: stalled'));
+                videoElement.addEventListener('error', () => addCameraLogToUI('error', '视频事件: error'));
                 
                 // 添加收发器
                 rtspPlayer.addTransceiver('video', {
-                    'direction': 'sendrecv'
+                    'direction': 'recvonly'
                 });
                 
                 // 创建数据通道
@@ -8417,6 +8445,7 @@ let radarVisibilityBound = false;
                 // 创建SDP offer
                 const offer = await rtspPlayer.createOffer();
                 await rtspPlayer.setLocalDescription(offer);
+                addCameraLogToUI('info', 'WebRTC本地Offer已创建');
                 
                 // 发送offer到服务器并获取answer
                 const webrtcResponse = await fetch('/api/camera/webrtc', {
@@ -8446,6 +8475,21 @@ let radarVisibilityBound = false;
                     type: 'answer',
                     sdp: atob(sdpAnswer)
                 }));
+                addCameraLogToUI('info', 'WebRTC远端Answer已设置');
+
+                const startWaitAt = Date.now();
+                const waitForFirstFrame = async () => {
+                    while (Date.now() - startWaitAt < 20000) {
+                        if (videoElement.readyState >= 2 && videoElement.currentTime > 0) {
+                            addCameraLogToUI('info', '已收到视频帧');
+                            return true;
+                        }
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+                    addCameraLogToUI('warn', `20秒未收到视频帧（readyState=${videoElement.readyState}，currentTime=${videoElement.currentTime.toFixed(3)}，ICE=${rtspPlayer.iceConnectionState}，conn=${rtspPlayer.connectionState}）`);
+                    return false;
+                };
+                waitForFirstFrame();
                 
                 // 更新按钮状态
                 document.getElementById('start-camera').style.display = 'none';
