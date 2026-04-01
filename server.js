@@ -420,7 +420,7 @@ async function checkLocalPortAvailable(port) {
         await new Promise((resolve, reject) => {
             const server = net.createServer();
             server.once('error', reject);
-            server.listen(port, '127.0.0.1', () => {
+            server.listen(port, '0.0.0.0', () => {
                 server.close(resolve);
             });
         });
@@ -434,7 +434,7 @@ async function checkLocalPortAvailable(port) {
 }
 
 function getLocalRtspListenUrl(port) {
-    return `rtsp://127.0.0.1:${port}/camera_h264?listen=1`;
+    return `rtsp://0.0.0.0:${port}/camera_h264`;
 }
 function getLocalRtspUrl(port) {
     return `rtsp://127.0.0.1:${port}/camera_h264`;
