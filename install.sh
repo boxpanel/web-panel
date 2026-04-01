@@ -1230,6 +1230,7 @@ install_ffmpeg_with_libmpp() {
         --enable-version3 \
         --enable-openssl \
         --enable-libdrm \
+        --enable-rkmpp \
         --enable-libmpp >"$FF_CONFIGURE_LOG" 2>&1
     if [ $? -ne 0 ]; then
         print_warning "FFmpeg configure失败: $FF_CONFIGURE_LOG"
