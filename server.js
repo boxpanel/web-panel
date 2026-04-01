@@ -224,6 +224,7 @@ let rkRtspPort = 8554;
 let rkLastStderrLines = [];
 let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
+let rkLastFailureReason = '';
 
 // RTSPtoWeb服务状态缓存
 let lastRTSPStatus = null;
@@ -260,6 +261,14 @@ function maskRtspUrl(rtspUrl) {
 
 function rkLog(level, message) {
     addCameraLog(level, `[RK转码] ${message}`);
+}
+
+function sanitizeFfmpegText(text) {
+    try {
+        return maskRtspUrl(String(text || ''));
+    } catch {
+        return '';
+    }
 }
 
 function tailText(text, lineCount) {
@@ -368,7 +377,8 @@ async function testHevcDecodeWithRkmpp(inputRtsp) {
         rkLog('info', 'HEVC硬解探测通过');
         return true;
     } catch (e) {
-        const tail = tailText(e && e.stderr ? e.stderr : '', 30) || (e && e.message ? e.message : '未知');
+        const tail = sanitizeFfmpegText(tailText(e && e.stderr ? e.stderr : '', 30) || (e && e.message ? e.message : '未知'));
+        rkLastFailureReason = `HEVC硬解探测失败: ${tail || '未知'}`;
         rkLog('error', `HEVC硬解探测失败（转码不会启动）：${tail}`);
         return false;
     }
@@ -397,7 +407,8 @@ async function testHevcToH264EncodeWithRkmpp(inputRtsp) {
         rkLog('info', 'HEVC→H264硬件转码首帧测试通过');
         return true;
     } catch (e) {
-        const tail = tailText(e && e.stderr ? e.stderr : '', 30) || (e && e.message ? e.message : '未知');
+        const tail = sanitizeFfmpegText(tailText(e && e.stderr ? e.stderr : '', 30) || (e && e.message ? e.message : '未知'));
+        rkLastFailureReason = `HEVC→H264硬件转码首帧测试失败: ${tail || '未知'}`;
         rkLog('error', `HEVC→H264硬件转码首帧测试失败：${tail}`);
         return false;
     }
@@ -415,7 +426,9 @@ async function checkLocalPortAvailable(port) {
         });
         return true;
     } catch (e) {
-        rkLog('warn', `端口检查失败：端口${port}可能被占用或无权限，error=${e.message}`);
+        const msg = `端口${port}可能被占用或无权限，error=${e.message}`;
+        rkLastFailureReason = `端口不可用: ${msg}`;
+        rkLog('warn', `端口检查失败：${msg}`);
         return false;
     }
 }
@@ -514,11 +527,13 @@ async function waitForRtspCodecReady({ rtspUrl, expectedCodecs, timeoutMs }) {
         await new Promise(r => setTimeout(r, 500));
     }
     rkLog('warn', `等待本地输出就绪超时: ${Math.floor(timeoutMs / 1000)}s`);
+    rkLastFailureReason = `等待本地输出就绪超时(${Math.floor(timeoutMs / 1000)}s): ${rtspUrl}`;
     return false;
 }
 
 async function launchRockchipTranscoder(inputRtsp) {
     try {
+        rkLastFailureReason = '';
         if (rkTranscoder && rkTranscoder.pid) {
             rkLog('info', '检测到已有转码进程，先停止旧进程');
             try { rkTranscoder.kill('SIGTERM'); } catch {}
@@ -528,6 +543,7 @@ async function launchRockchipTranscoder(inputRtsp) {
         const chosenPort = await allocRtspPort(8554, 16);
         if (!chosenPort) {
             rkLog('warn', '端口检查失败：在8554-8569均无法监听，放弃启动转码');
+            if (!rkLastFailureReason) rkLastFailureReason = '端口检查失败：在8554-8569均无法监听';
             return false;
         }
         rkRtspPort = chosenPort;
@@ -587,6 +603,7 @@ async function launchRockchipTranscoder(inputRtsp) {
         if (!ready) {
             const tail = rkLastStderrLines.length ? rkLastStderrLines.slice(-6).join(' | ') : '无';
             rkLog('warn', `硬件转码未就绪（未检测到H264输出）。最近日志: ${tail}`);
+            rkLastFailureReason = sanitizeFfmpegText(`硬件转码未就绪（未检测到H264输出）。最近日志: ${tail}`);
             stopRockchipTranscoder();
             return false;
         }
@@ -594,7 +611,8 @@ async function launchRockchipTranscoder(inputRtsp) {
         return true;
     } catch (e) {
         const tail = rkLastStderrLines.length ? rkLastStderrLines.slice(-6).join(' | ') : '无';
-        rkLog('error', `启动Rockchip转码失败: ${e.message}。最近日志: ${tail}`);
+        rkLastFailureReason = sanitizeFfmpegText(`启动Rockchip转码失败: ${e.message}。最近日志: ${tail}`);
+        rkLog('error', rkLastFailureReason);
         rkTranscoder = null;
         return false;
     }
@@ -2835,7 +2853,7 @@ async function updateRTSPtoWebConfig() {
             const started = await launchRockchipTranscoder(rtspUrl);
             if (!started) {
                 rkLog('error', '硬件转码未就绪或启动失败');
-                throw new Error('H265(HEVC)硬件转码未就绪或启动失败');
+                throw new Error(rkLastFailureReason || 'H265(HEVC)硬件转码未就绪或启动失败');
             }
 
             targetRtspUrl = getLocalRtspUrl(rkRtspPort);

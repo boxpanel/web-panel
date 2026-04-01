@@ -8249,8 +8249,13 @@ let radarVisibilityBound = false;
                 if (!streamResponse.ok) {
                     let errorMessage = 'RTSPtoWeb流添加失败';
                     try {
-                        const error = await streamResponse.json();
-                        errorMessage = error.error || errorMessage;
+                        const errorText = await streamResponse.text();
+                        let parsed = null;
+                        try {
+                            parsed = JSON.parse(errorText);
+                        } catch (e) {
+                        }
+                        errorMessage = (parsed && parsed.error) ? parsed.error : (errorText || errorMessage);
                         
                         // 检查是否是流已存在的错误，如果是则自动重试
                         if (errorMessage.includes('stream already exists')) {
@@ -8287,8 +8292,13 @@ let radarVisibilityBound = false;
                             }
                             
                             if (!retryResponse.ok) {
-                                const retryError = await retryResponse.json();
-                                throw new Error(retryError.error || '重试后仍然失败');
+                                const retryText = await retryResponse.text();
+                                let retryParsed = null;
+                                try {
+                                    retryParsed = JSON.parse(retryText);
+                                } catch (e) {
+                                }
+                                throw new Error((retryParsed && retryParsed.error) ? retryParsed.error : (retryText || '重试后仍然失败'));
                             }
                             
                             console.log('重试成功，继续执行...');
