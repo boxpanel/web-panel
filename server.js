@@ -214,7 +214,11 @@ const execAsync = ProcessUtils.execCommand;
 let cameraLogs = [];
 const MAX_LOGS = 100; // 最多保存100条日志
 let rkTranscoder = null;
+const RK_LOCAL_RTSP_LISTEN = 'rtsp://0.0.0.0:8554/camera_h264';
 const RK_LOCAL_RTSP = 'rtsp://127.0.0.1:8554/camera_h264';
+let rkLastStderrLines = [];
+let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
+let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
 
 // RTSPtoWeb服务状态缓存
 let lastRTSPStatus = null;
@@ -240,6 +244,19 @@ function addCameraLog(level, message) {
     console.log(`[摄像头日志] [${level.toUpperCase()}] ${message}`);
 }
 
+function maskRtspUrl(rtspUrl) {
+    try {
+        if (!rtspUrl || typeof rtspUrl !== 'string') return rtspUrl;
+        return rtspUrl.replace(/:\/\/[^@\/\s]+@/g, '://***@');
+    } catch {
+        return rtspUrl;
+    }
+}
+
+function rkLog(level, message) {
+    addCameraLog(level, `[RK转码] ${message}`);
+}
+
 function isRockchipRkmppAvailable() {
     try {
         if (os.platform() !== 'linux') return false;
@@ -253,8 +270,49 @@ function isRockchipRkmppAvailable() {
     }
 }
 
+async function checkFfmpegRkmppSupport() {
+    const now = Date.now();
+    if (rkFfmpegRkmppSupportCache.ok !== null && (now - rkFfmpegRkmppSupportCache.checkedAt) < 60000) {
+        rkLog('info', `ffmpeg rkmpp能力缓存: ${rkFfmpegRkmppSupportCache.ok ? '支持' : '不支持'}`);
+        return rkFfmpegRkmppSupportCache.ok;
+    }
+    try {
+        rkLog('info', '检测ffmpeg是否包含rkmpp编解码器...');
+        const dec = await ProcessUtils.spawnCommand('ffmpeg', ['-hide_banner', '-decoders'], { timeout: 8000 });
+        const enc = await ProcessUtils.spawnCommand('ffmpeg', ['-hide_banner', '-encoders'], { timeout: 8000 });
+        const hasHevcDec = (dec.stdout || '').includes('hevc_rkmpp') || (dec.stderr || '').includes('hevc_rkmpp');
+        const hasH264Enc = (enc.stdout || '').includes('h264_rkmpp') || (enc.stderr || '').includes('h264_rkmpp');
+        const ok = Boolean(hasHevcDec && hasH264Enc);
+        rkFfmpegRkmppSupportCache = { ok, checkedAt: now };
+        rkLog('info', `rkmpp检测结果: hevc_rkmpp解码=${hasHevcDec ? '是' : '否'}, h264_rkmpp编码=${hasH264Enc ? '是' : '否'}`);
+        return ok;
+    } catch (e) {
+        rkFfmpegRkmppSupportCache = { ok: false, checkedAt: now };
+        rkLog('warn', `检测ffmpeg rkmpp能力失败: ${e.message}`);
+        return false;
+    }
+}
+
+async function getFfmpegVersionText() {
+    const now = Date.now();
+    if (rkFfmpegVersionCache.text !== null && (now - rkFfmpegVersionCache.checkedAt) < 60000) {
+        return rkFfmpegVersionCache.text;
+    }
+    try {
+        const res = await ProcessUtils.spawnCommand('ffmpeg', ['-hide_banner', '-version'], { timeout: 8000 });
+        const text = (res.stdout || res.stderr || '').split('\n').slice(0, 3).join(' | ').trim();
+        rkFfmpegVersionCache = { text: text || '', checkedAt: now };
+        return rkFfmpegVersionCache.text;
+    } catch (e) {
+        rkFfmpegVersionCache = { text: '', checkedAt: now };
+        rkLog('warn', `获取ffmpeg版本失败: ${e.message}`);
+        return '';
+    }
+}
+
 async function detectRtspVideoCodec(rtspUrl) {
     try {
+        rkLog('info', `检测输入RTSP视频编码: ${maskRtspUrl(rtspUrl)}`);
         const args = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
@@ -269,9 +327,10 @@ async function detectRtspVideoCodec(rtspUrl) {
         const codec = parsed && parsed.streams && parsed.streams[0] && parsed.streams[0].codec_name
             ? String(parsed.streams[0].codec_name).toLowerCase()
             : null;
+        rkLog('info', `输入RTSP编码检测结果: ${codec || '未知'}`);
         return codec;
     } catch (e) {
-        addCameraLog('warn', `检测视频编码失败(将不启用硬件转码): ${e.message}`);
+        rkLog('warn', `检测视频编码失败(将不启用硬件转码): ${e.message}`);
         return null;
     }
 }
@@ -300,25 +359,41 @@ async function detectRtspVideoCodecSilent(rtspUrl) {
 
 async function waitForRtspCodecReady({ rtspUrl, expectedCodecs, timeoutMs }) {
     const start = Date.now();
+    rkLog('info', `等待本地输出就绪: ${rtspUrl}，期望编码=${expectedCodecs.join(',')}，超时=${timeoutMs}ms`);
+    let lastProgressLogAt = 0;
     while (Date.now() - start < timeoutMs) {
-        if (rkTranscoder && rkTranscoder.exitCode !== null && rkTranscoder.exitCode !== undefined) {
+        if (!rkTranscoder) {
+            rkLog('warn', '等待输出就绪时转码进程不存在');
+            return false;
+        }
+        if (rkTranscoder.exitCode !== null && rkTranscoder.exitCode !== undefined) {
+            rkLog('warn', `等待输出就绪时转码进程已退出: exitCode=${rkTranscoder.exitCode}`);
             return false;
         }
         const codec = await detectRtspVideoCodecSilent(rtspUrl);
         if (codec && expectedCodecs.includes(codec)) {
+            rkLog('info', `本地输出已就绪: codec=${codec}`);
             return true;
+        }
+        const elapsed = Date.now() - start;
+        if (elapsed - lastProgressLogAt >= 2000) {
+            rkLog('info', `等待中... 已耗时${Math.floor(elapsed / 1000)}s，当前检测codec=${codec || '未知'}`);
+            lastProgressLogAt = elapsed;
         }
         await new Promise(r => setTimeout(r, 500));
     }
+    rkLog('warn', `等待本地输出就绪超时: ${Math.floor(timeoutMs / 1000)}s`);
     return false;
 }
 
 async function launchRockchipTranscoder(inputRtsp) {
     try {
         if (rkTranscoder && rkTranscoder.pid) {
+            rkLog('info', '检测到已有转码进程，先停止旧进程');
             try { rkTranscoder.kill('SIGTERM'); } catch {}
             rkTranscoder = null;
         }
+        rkLastStderrLines = [];
         const { spawn } = require('child_process');
         const args = [
             '-hide_banner',
@@ -331,20 +406,29 @@ async function launchRockchipTranscoder(inputRtsp) {
             '-f', 'rtsp',
             '-rtsp_flags', 'listen',
             '-rtsp_transport', 'tcp',
-            RK_LOCAL_RTSP
+            RK_LOCAL_RTSP_LISTEN
         ];
-        addCameraLog('info', '启动Rockchip硬件转码 (HEVC→H264)');
+        const ffmpegVersion = await getFfmpegVersionText();
+        if (ffmpegVersion) {
+            rkLog('info', `ffmpeg版本: ${ffmpegVersion}`);
+        }
+        rkLog('info', `启动Rockchip硬件转码 (HEVC→H264)，输入=${maskRtspUrl(inputRtsp)}，输出=${RK_LOCAL_RTSP_LISTEN}`);
         rkTranscoder = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
         rkTranscoder.stdout.on('data', d => {
             const t = d.toString();
-            if (t.trim()) addCameraLog('info', `转码输出: ${t.trim()}`);
+            if (t.trim()) rkLog('info', `转码输出: ${t.trim()}`);
         });
         rkTranscoder.stderr.on('data', d => {
             const t = d.toString();
-            if (t.trim()) addCameraLog('warn', `转码日志: ${t.trim()}`);
+            const line = t.trim();
+            if (line) {
+                rkLastStderrLines.push(line);
+                if (rkLastStderrLines.length > 30) rkLastStderrLines.shift();
+                rkLog('warn', `转码日志: ${line}`);
+            }
         });
         rkTranscoder.on('close', code => {
-            addCameraLog('warn', `转码进程已退出，code=${code}`);
+            rkLog('warn', `转码进程已退出，code=${code}`);
             rkTranscoder = null;
         });
         const ready = await waitForRtspCodecReady({
@@ -353,14 +437,16 @@ async function launchRockchipTranscoder(inputRtsp) {
             timeoutMs: 20000
         });
         if (!ready) {
-            addCameraLog('warn', '硬件转码未就绪（未检测到H264输出），将回退为直接RTSP播放');
+            const tail = rkLastStderrLines.length ? rkLastStderrLines.slice(-6).join(' | ') : '无';
+            rkLog('warn', `硬件转码未就绪（未检测到H264输出）。最近日志: ${tail}`);
             stopRockchipTranscoder();
             return false;
         }
-        addCameraLog('info', '硬件转码已就绪（已检测到H264输出）');
+        rkLog('info', '硬件转码已就绪（已检测到H264输出）');
         return true;
     } catch (e) {
-        addCameraLog('error', `启动Rockchip转码失败: ${e.message}`);
+        const tail = rkLastStderrLines.length ? rkLastStderrLines.slice(-6).join(' | ') : '无';
+        rkLog('error', `启动Rockchip转码失败: ${e.message}。最近日志: ${tail}`);
         rkTranscoder = null;
         return false;
     }
@@ -371,10 +457,10 @@ function stopRockchipTranscoder() {
         if (rkTranscoder && rkTranscoder.pid) {
             rkTranscoder.kill('SIGTERM');
             rkTranscoder = null;
-            addCameraLog('info', '已停止Rockchip硬件转码');
+            rkLog('info', '已停止Rockchip硬件转码');
         }
     } catch (e) {
-        addCameraLog('warn', `停止转码进程失败: ${e.message}`);
+        rkLog('warn', `停止转码进程失败: ${e.message}`);
     }
 }
 
@@ -411,12 +497,14 @@ function isRtspToWebStreamNotFoundError(errorResponseData) {
 
 async function ensureRtspToWebCameraStreamExists() {
     try {
+        addCameraLog('info', '检查RTSPtoWeb camera流是否存在...');
         await HttpClient.get('http://localhost:8084/stream/camera/info', {
             headers: {
                 'Authorization': 'Basic ' + Buffer.from('demo:demo').toString('base64')
             },
             timeout: 4000
         });
+        addCameraLog('info', 'RTSPtoWeb camera流已存在');
         return true;
     } catch (e) {
         const resp = e && e.response ? e.response : null;
@@ -424,6 +512,7 @@ async function ensureRtspToWebCameraStreamExists() {
         if (!isRtspToWebStreamNotFoundError(resp.data)) return false;
 
         try {
+            addCameraLog('warn', 'RTSPtoWeb camera流不存在，准备自动创建...');
             const rtspUrl = await updateRTSPtoWebConfig();
             const streamData = {
                 name: "Camera Stream",
@@ -2573,28 +2662,40 @@ async function updateRTSPtoWebConfig() {
         }
         
         console.log('更新RTSPtoWeb配置，原始RTSP URL:', rtspUrl);
+        addCameraLog('info', `开始更新RTSPtoWeb配置，输入RTSP: ${maskRtspUrl(rtspUrl)}`);
         
         let targetRtspUrl = rtspUrl;
         if (isRockchipRkmppAvailable()) {
+            rkLog('info', '检测到Rockchip设备节点，进入硬件转码判定流程');
             const codec = await detectRtspVideoCodec(rtspUrl);
             if (codec === 'hevc' || codec === 'h265') {
+                rkLog('info', '输入为H265(HEVC)，准备尝试硬件转码');
+                const hasRkmpp = await checkFfmpegRkmppSupport();
+                if (!hasRkmpp) {
+                    stopRockchipTranscoder();
+                    rkLog('warn', '当前ffmpeg未包含rkmpp编解码器，无法硬件转码，将回退为直接RTSP播放');
+                } else {
                 const started = await launchRockchipTranscoder(rtspUrl);
                 if (started) {
                     targetRtspUrl = RK_LOCAL_RTSP;
-                    addCameraLog('info', `检测到H265(HEVC)，启用硬件转码RTSP: ${RK_LOCAL_RTSP}`);
+                    rkLog('info', `硬件转码成功，输出RTSP: ${RK_LOCAL_RTSP}`);
                 } else {
-                    addCameraLog('warn', '硬件转码启动失败，回退为直接RTSP播放');
+                    rkLog('warn', '硬件转码未就绪或启动失败，将回退为直接RTSP播放');
+                }
                 }
             } else if (codec) {
                 stopRockchipTranscoder();
-                addCameraLog('info', `视频编码为${codec}，无需硬件转码，直接RTSP播放`);
+                rkLog('info', `输入编码为${codec}，无需硬件转码，直接RTSP播放`);
             } else {
                 stopRockchipTranscoder();
+                rkLog('warn', '输入编码检测失败，跳过硬件转码，直接RTSP播放');
             }
         } else {
             stopRockchipTranscoder();
-            addCameraLog('info', '硬件转码不可用（平台非Linux/Rockchip或设备节点缺失），直接RTSP播放');
+            rkLog('info', '硬件转码不可用（平台非Linux/Rockchip或设备节点缺失），直接RTSP播放');
         }
+        
+        addCameraLog('info', `RTSPtoWeb将使用的URL: ${maskRtspUrl(targetRtspUrl)}`);
         
         // 读取现有配置
         const configPath = path.join(__dirname, 'RTSPtoWeb', 'config.json');
@@ -2642,7 +2743,7 @@ async function updateRTSPtoWebConfig() {
         await fs.writeFile(configPath, JSON.stringify(config, null, 2));
         console.log('RTSPtoWeb配置已更新');
         
-        addCameraLog('info', `RTSPtoWeb配置更新成功，RTSP URL: ${targetRtspUrl.replace(/:\/\/.*@/, '://***@')}`);
+        addCameraLog('info', `RTSPtoWeb配置更新成功，RTSP URL: ${maskRtspUrl(targetRtspUrl)}`);
         return targetRtspUrl;
     } catch (error) {
         console.error('更新RTSPtoWeb配置失败:', error);
