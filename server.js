@@ -226,8 +226,12 @@ let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
 let rkLastFailureReason = '';
 let mediamtxPublisher = null;
-const MEDIAMTX_RTSP_PUBLISH_URL = 'rtsp://127.0.0.1:8554/camera';
-const MEDIAMTX_WHEP_PATH = 'camera';
+let mtxLastFailureReason = '';
+let mtxLastStderrLines = [];
+const MEDIAMTX_PATH = process.env.MEDIAMTX_PATH || 'camera';
+const MEDIAMTX_RTSP_PORT = parseInt(process.env.MEDIAMTX_RTSP_PORT || '8554', 10);
+const MEDIAMTX_WEBRTC_PORT = parseInt(process.env.MEDIAMTX_WEBRTC_PORT || '8889', 10);
+const MEDIAMTX_RTSP_PUBLISH_URL = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDIAMTX_PATH}`;
 
 // RTSPtoWeb服务状态缓存
 let lastRTSPStatus = null;
@@ -386,13 +390,15 @@ async function checkTcpConnect(host, port, timeoutMs = 1500) {
     });
 }
 
-async function isMediamtxAvailable() {
-    if (os.platform() !== 'linux') return false;
-    const rtspOk = await checkTcpConnect('127.0.0.1', 8554, 1200);
-    const webrtcOk = await checkTcpConnect('127.0.0.1', 8889, 1200);
-    if (!rtspOk) mtxLog('warn', 'MediaMTX RTSP端口(8554)不可用');
-    if (!webrtcOk) mtxLog('warn', 'MediaMTX WebRTC端口(8889)不可用');
-    return rtspOk && webrtcOk;
+async function getMediamtxAvailability() {
+    if (os.platform() !== 'linux') {
+        return { rtspOk: false, webrtcOk: false };
+    }
+    const rtspOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 1200);
+    const webrtcOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_WEBRTC_PORT, 1200);
+    if (!rtspOk) mtxLog('warn', `MediaMTX RTSP端口(${MEDIAMTX_RTSP_PORT})不可用`);
+    if (!webrtcOk) mtxLog('warn', `MediaMTX WebRTC端口(${MEDIAMTX_WEBRTC_PORT})不可用`);
+    return { rtspOk, webrtcOk };
 }
 
 async function stopMediamtxPublisher() {
@@ -402,6 +408,8 @@ async function stopMediamtxPublisher() {
             mediamtxPublisher.kill('SIGTERM');
             mediamtxPublisher = null;
         }
+        mtxLastStderrLines = [];
+        mtxLastFailureReason = '';
     } catch (e) {
         mtxLog('warn', `停止MediaMTX推流进程失败: ${e.message}`);
     }
@@ -410,7 +418,7 @@ async function stopMediamtxPublisher() {
 async function waitForMediamtxPublishReady(expectedCodec, timeoutMs = 20000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-        const codec = await detectRtspVideoCodecSilent('rtsp://127.0.0.1:8554/camera');
+        const codec = await detectRtspVideoCodecSilent(`rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDIAMTX_PATH}`);
         if (codec === expectedCodec) {
             mtxLog('info', `MediaMTX推流已就绪: codec=${codec}`);
             return true;
@@ -423,11 +431,17 @@ async function waitForMediamtxPublishReady(expectedCodec, timeoutMs = 20000) {
 
 async function launchMediamtxPublisher({ inputRtsp, mode }) {
     try {
+        mtxLastFailureReason = '';
+        mtxLastStderrLines = [];
         await stopMediamtxPublisher();
 
-        const ok = await isMediamtxAvailable();
-        if (!ok) {
-            throw new Error('MediaMTX未运行或端口不可用(8554/8889)');
+        const availability = await getMediamtxAvailability();
+        if (!availability.rtspOk) {
+            mtxLastFailureReason = `MediaMTX未运行或RTSP端口不可用(${MEDIAMTX_RTSP_PORT})`;
+            throw new Error(mtxLastFailureReason);
+        }
+        if (!availability.webrtcOk) {
+            mtxLog('warn', `MediaMTX WebRTC端口(${MEDIAMTX_WEBRTC_PORT})不可用，将无法通过WHEP播放`);
         }
 
         const ffmpegBin = getFfmpegBinary();
@@ -478,7 +492,12 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
         });
         mediamtxPublisher.stderr.on('data', d => {
             const t = d.toString().trim();
-            if (t) mtxLog('warn', `推流日志: ${sanitizeFfmpegText(t)}`);
+            if (t) {
+                const line = sanitizeFfmpegText(t);
+                mtxLastStderrLines.push(line);
+                if (mtxLastStderrLines.length > 30) mtxLastStderrLines.shift();
+                mtxLog('warn', `推流日志: ${line}`);
+            }
         });
         mediamtxPublisher.on('close', code => {
             mtxLog('warn', `推流进程已退出，code=${code}`);
@@ -492,7 +511,12 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
         }
         return true;
     } catch (e) {
-        mtxLog('error', `启动MediaMTX推流失败: ${e.message}`);
+        const tail = mtxLastStderrLines.length ? mtxLastStderrLines.slice(-8).join(' | ') : '';
+        mtxLastFailureReason = e && e.message ? String(e.message) : '启动MediaMTX推流失败';
+        if (tail) {
+            mtxLastFailureReason = `${mtxLastFailureReason}。最近日志: ${tail}`;
+        }
+        mtxLog('error', `启动MediaMTX推流失败: ${mtxLastFailureReason}`);
         await stopMediamtxPublisher();
         return false;
     }
@@ -3253,10 +3277,10 @@ app.post('/api/camera/rtsp2web/stream', requireAuth, async (req, res) => {
 
 app.get('/api/camera/mediamtx/status', requireAuth, async (req, res) => {
     try {
-        const available = await isMediamtxAvailable();
-        res.json({ success: true, available });
+        const { rtspOk, webrtcOk } = await getMediamtxAvailability();
+        res.json({ success: true, rtspOk, webrtcOk, rtspPort: MEDIAMTX_RTSP_PORT, webrtcPort: MEDIAMTX_WEBRTC_PORT, path: MEDIAMTX_PATH });
     } catch (e) {
-        res.json({ success: true, available: false });
+        res.json({ success: true, rtspOk: false, webrtcOk: false, rtspPort: MEDIAMTX_RTSP_PORT, webrtcPort: MEDIAMTX_WEBRTC_PORT, path: MEDIAMTX_PATH });
     }
 });
 
@@ -3308,19 +3332,19 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
             const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'transcode_h265_to_h264' });
             if (!started) {
-                return res.status(500).json({ error: '启动MediaMTX推流失败' });
+                return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败' });
             }
         } else if (codec === 'h264') {
             const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'copy' });
             if (!started) {
-                return res.status(500).json({ error: '启动MediaMTX推流失败' });
+                return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败' });
             }
         } else {
             return res.status(500).json({ error: `暂不支持的视频编码: ${codec}` });
         }
 
         const host = req.hostname || 'localhost';
-        const whepUrl = `http://${host}:8889/${MEDIAMTX_WHEP_PATH}/whep`;
+        const whepUrl = `http://${host}:${MEDIAMTX_WEBRTC_PORT}/${MEDIAMTX_PATH}/whep`;
         res.json({ success: true, whepUrl });
     } catch (e) {
         res.status(500).json({ error: e.message });
