@@ -218,6 +218,8 @@ const RK_LOCAL_RTSP_LISTEN = 'rtsp://0.0.0.0:8554/camera_h264';
 const RK_LOCAL_RTSP = 'rtsp://127.0.0.1:8554/camera_h264';
 const RK_RTSP_ANALYZE_DURATION = '10000000';
 const RK_RTSP_PROBE_SIZE = '10000000';
+const RK_TRANSCODE_READY_TIMEOUT_MS = 60000;
+const RK_HEVC_DECODE_TEST_SECONDS = 3;
 let rkLastStderrLines = [];
 let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
@@ -257,6 +259,16 @@ function maskRtspUrl(rtspUrl) {
 
 function rkLog(level, message) {
     addCameraLog(level, `[RK转码] ${message}`);
+}
+
+function tailText(text, lineCount) {
+    try {
+        if (!text) return '';
+        const lines = String(text).split(/\r?\n/).filter(Boolean);
+        return lines.slice(-lineCount).join(' | ');
+    } catch {
+        return '';
+    }
 }
 
 function isRockchipRkmppAvailable() {
@@ -331,6 +343,33 @@ async function getFfmpegVersionText() {
         rkFfmpegVersionCache = { text: '', checkedAt: now };
         rkLog('warn', `获取ffmpeg版本失败: ${e.message}`);
         return '';
+    }
+}
+
+async function testHevcDecodeWithRkmpp(inputRtsp) {
+    const ffmpegBin = getFfmpegBinary();
+    rkLog('info', `转码前检查：尝试HEVC硬解探测(${RK_HEVC_DECODE_TEST_SECONDS}s)：${maskRtspUrl(inputRtsp)}，ffmpeg=${ffmpegBin}`);
+    const args = [
+        '-hide_banner',
+        '-loglevel', 'warning',
+        '-rtsp_transport', 'tcp',
+        '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
+        '-probesize', RK_RTSP_PROBE_SIZE,
+        '-c:v', 'hevc_rkmpp',
+        '-i', inputRtsp,
+        '-t', String(RK_HEVC_DECODE_TEST_SECONDS),
+        '-an',
+        '-f', 'null',
+        '-'
+    ];
+    try {
+        await ProcessUtils.spawnCommand(ffmpegBin, args, { timeout: (RK_HEVC_DECODE_TEST_SECONDS * 1000) + 12000 });
+        rkLog('info', 'HEVC硬解探测通过');
+        return true;
+    } catch (e) {
+        const tail = tailText(e && e.stderr ? e.stderr : '', 30) || (e && e.message ? e.message : '未知');
+        rkLog('error', `HEVC硬解探测失败（转码不会启动）：${tail}`);
+        return false;
     }
 }
 
@@ -421,6 +460,11 @@ async function launchRockchipTranscoder(inputRtsp) {
             try { rkTranscoder.kill('SIGTERM'); } catch {}
             rkTranscoder = null;
         }
+        const decodeOk = await testHevcDecodeWithRkmpp(inputRtsp);
+        if (!decodeOk) {
+            return false;
+        }
+
         rkLastStderrLines = [];
         const { spawn } = require('child_process');
         const args = [
@@ -465,7 +509,7 @@ async function launchRockchipTranscoder(inputRtsp) {
         const ready = await waitForRtspCodecReady({
             rtspUrl: RK_LOCAL_RTSP,
             expectedCodecs: ['h264'],
-            timeoutMs: 20000
+            timeoutMs: RK_TRANSCODE_READY_TIMEOUT_MS
         });
         if (!ready) {
             const tail = rkLastStderrLines.length ? rkLastStderrLines.slice(-6).join(' | ') : '无';
