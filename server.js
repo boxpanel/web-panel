@@ -434,7 +434,7 @@ async function checkLocalPortAvailable(port) {
 }
 
 function getLocalRtspListenUrl(port) {
-    return `rtsp://127.0.0.1:${port}/camera_h264`;
+    return `rtsp://127.0.0.1:${port}/camera_h264?listen=1`;
 }
 function getLocalRtspUrl(port) {
     return `rtsp://127.0.0.1:${port}/camera_h264`;
