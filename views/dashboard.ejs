@@ -8643,6 +8643,40 @@ let radarVisibilityBound = false;
         
         // 摄像头日志相关函数
         let cameraLogInterval;
+        let renderedCameraLogKeys = new Set();
+        
+        function buildCameraLogKey(log) {
+            const ts = log && log.timestamp ? String(log.timestamp) : '';
+            const lvl = log && log.level ? String(log.level) : '';
+            const msg = log && log.message ? String(log.message) : '';
+            return `${ts}|${lvl}|${msg}`;
+        }
+        
+        function appendCameraLogLine(log, logsContainer) {
+            const timestamp = new Date(log.timestamp).toLocaleString();
+            const levelClass = log.level === 'error' ? 'text-danger' : 
+                             log.level === 'warn' ? 'text-warning' : 'text-info';
+
+            const line = document.createElement('div');
+            line.className = `${levelClass} mb-1 d-flex align-items-center`;
+
+            const text = document.createElement('span');
+            text.className = 'flex-grow-1';
+            text.textContent = `[${timestamp}] ${log.message}`;
+
+            const rtspMatch = typeof log.message === 'string' ? log.message.match(/rtsp:\/\/[^\s<]+/i) : null;
+            if (rtspMatch && rtspMatch[0] && onvifRtspMap && onvifRtspMap.has(rtspMatch[0])) {
+                text.style.cursor = 'pointer';
+                text.style.textDecoration = 'underline';
+                text.dataset.rtsp = onvifRtspMap.get(rtspMatch[0]);
+                text.addEventListener('dblclick', () => {
+                    applyRtspToCameraSettings(text.dataset.rtsp);
+                });
+            }
+
+            line.appendChild(text);
+            logsContainer.appendChild(line);
+        }
         
         // 直接向UI添加摄像头日志（用于实时错误显示）
         function addCameraLogToUI(level, message) {
@@ -8675,45 +8709,38 @@ let radarVisibilityBound = false;
                 
                 const logsContainer = document.getElementById('camera-logs');
                 if (data.success && data.logs && data.logs.length > 0) {
-                    logsContainer.innerHTML = '';
+                    const shouldStickToBottom = (logsContainer.scrollHeight - (logsContainer.scrollTop + logsContainer.clientHeight)) < 40;
+
+                    if (logsContainer.innerHTML.includes('暂无日志信息') || logsContainer.innerHTML.includes('获取日志失败') || logsContainer.innerHTML.includes('日志已清空')) {
+                        logsContainer.innerHTML = '';
+                        renderedCameraLogKeys = new Set();
+                    }
+
                     const logs = data.logs.slice().reverse();
                     for (const log of logs) {
-                        const timestamp = new Date(log.timestamp).toLocaleString();
-                        const levelClass = log.level === 'error' ? 'text-danger' : 
-                                         log.level === 'warn' ? 'text-warning' : 'text-info';
-
-                        const line = document.createElement('div');
-                        line.className = `${levelClass} mb-1 d-flex align-items-center`;
-
-                        const text = document.createElement('span');
-                        text.className = 'flex-grow-1';
-                        text.textContent = `[${timestamp}] ${log.message}`;
-
-                        const rtspMatch = typeof log.message === 'string' ? log.message.match(/rtsp:\/\/[^\s<]+/i) : null;
-                        if (rtspMatch && rtspMatch[0] && onvifRtspMap && onvifRtspMap.has(rtspMatch[0])) {
-                            text.style.cursor = 'pointer';
-                            text.style.textDecoration = 'underline';
-                            text.dataset.rtsp = onvifRtspMap.get(rtspMatch[0]);
-                            text.addEventListener('dblclick', () => {
-                                applyRtspToCameraSettings(text.dataset.rtsp);
-                            });
-                            line.appendChild(text);
-                        } else {
-                            line.appendChild(text);
-                        }
-
-                        logsContainer.appendChild(line);
+                        const key = buildCameraLogKey(log);
+                        if (renderedCameraLogKeys.has(key)) continue;
+                        appendCameraLogLine(log, logsContainer);
+                        renderedCameraLogKeys.add(key);
                     }
                     
                     // 自动滚动到底部显示最新日志
-                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                    if (shouldStickToBottom) {
+                        logsContainer.scrollTop = logsContainer.scrollHeight;
+                    }
                 } else {
-                    logsContainer.innerHTML = '<div class="text-muted text-center">暂无日志信息</div>';
+                    if (!logsContainer.innerHTML || logsContainer.innerHTML.trim() === '') {
+                        logsContainer.innerHTML = '<div class="text-muted text-center">暂无日志信息</div>';
+                    }
                 }
             } catch (error) {
                 console.error('获取摄像头日志失败:', error);
                 const logsContainer = document.getElementById('camera-logs');
-                logsContainer.innerHTML = '<div class="text-danger text-center">获取日志失败</div>';
+                if (!logsContainer.innerHTML || logsContainer.innerHTML.trim() === '' || logsContainer.innerHTML.includes('暂无日志信息')) {
+                    logsContainer.innerHTML = '<div class="text-danger text-center">获取日志失败</div>';
+                } else {
+                    addCameraLogToUI('warn', '获取摄像头日志失败');
+                }
             }
         }
         
@@ -8727,6 +8754,7 @@ let radarVisibilityBound = false;
                 
                 if (data.success) {
                     onvifRtspMap = new Map();
+                    renderedCameraLogKeys = new Set();
                     const logsContainer = document.getElementById('camera-logs');
                     logsContainer.innerHTML = '<div class="text-muted text-center">日志已清空</div>';
                 } else {
