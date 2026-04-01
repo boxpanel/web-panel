@@ -216,6 +216,8 @@ const MAX_LOGS = 100; // 最多保存100条日志
 let rkTranscoder = null;
 const RK_LOCAL_RTSP_LISTEN = 'rtsp://0.0.0.0:8554/camera_h264';
 const RK_LOCAL_RTSP = 'rtsp://127.0.0.1:8554/camera_h264';
+const RK_RTSP_ANALYZE_DURATION = '10000000';
+const RK_RTSP_PROBE_SIZE = '10000000';
 let rkLastStderrLines = [];
 let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
@@ -278,8 +280,8 @@ async function checkFfmpegRkmppSupport() {
     }
     try {
         rkLog('info', '检测ffmpeg是否包含rkmpp编解码器...');
-        const dec = await ProcessUtils.spawnCommand('ffmpeg', ['-hide_banner', '-decoders'], { timeout: 8000 });
-        const enc = await ProcessUtils.spawnCommand('ffmpeg', ['-hide_banner', '-encoders'], { timeout: 8000 });
+        const dec = await ProcessUtils.spawnCommand(getFfmpegBinary(), ['-hide_banner', '-decoders'], { timeout: 8000 });
+        const enc = await ProcessUtils.spawnCommand(getFfmpegBinary(), ['-hide_banner', '-encoders'], { timeout: 8000 });
         const hasHevcDec = (dec.stdout || '').includes('hevc_rkmpp') || (dec.stderr || '').includes('hevc_rkmpp');
         const hasH264Enc = (enc.stdout || '').includes('h264_rkmpp') || (enc.stderr || '').includes('h264_rkmpp');
         const ok = Boolean(hasHevcDec && hasH264Enc);
@@ -293,13 +295,35 @@ async function checkFfmpegRkmppSupport() {
     }
 }
 
+function getFfmpegBinary() {
+    try {
+        const fs = require('fs');
+        if (os.platform() === 'linux' && fs.existsSync('/usr/local/bin/ffmpeg')) {
+            return '/usr/local/bin/ffmpeg';
+        }
+    } catch {
+    }
+    return 'ffmpeg';
+}
+
+function getFfprobeBinary() {
+    try {
+        const fs = require('fs');
+        if (os.platform() === 'linux' && fs.existsSync('/usr/local/bin/ffprobe')) {
+            return '/usr/local/bin/ffprobe';
+        }
+    } catch {
+    }
+    return 'ffprobe';
+}
+
 async function getFfmpegVersionText() {
     const now = Date.now();
     if (rkFfmpegVersionCache.text !== null && (now - rkFfmpegVersionCache.checkedAt) < 60000) {
         return rkFfmpegVersionCache.text;
     }
     try {
-        const res = await ProcessUtils.spawnCommand('ffmpeg', ['-hide_banner', '-version'], { timeout: 8000 });
+        const res = await ProcessUtils.spawnCommand(getFfmpegBinary(), ['-hide_banner', '-version'], { timeout: 8000 });
         const text = (res.stdout || res.stderr || '').split('\n').slice(0, 3).join(' | ').trim();
         rkFfmpegVersionCache = { text: text || '', checkedAt: now };
         return rkFfmpegVersionCache.text;
@@ -316,12 +340,14 @@ async function detectRtspVideoCodec(rtspUrl) {
         const args = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
+            '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
+            '-probesize', RK_RTSP_PROBE_SIZE,
             '-select_streams', 'v:0',
             '-show_entries', 'stream=codec_name',
             '-of', 'json',
             rtspUrl
         ];
-        const result = await ProcessUtils.spawnCommand('ffprobe', args, { timeout: 8000 });
+        const result = await ProcessUtils.spawnCommand(getFfprobeBinary(), args, { timeout: 12000 });
         const raw = result.stdout || '';
         const parsed = raw ? JSON.parse(raw) : {};
         const codec = parsed && parsed.streams && parsed.streams[0] && parsed.streams[0].codec_name
@@ -340,12 +366,14 @@ async function detectRtspVideoCodecSilent(rtspUrl) {
         const args = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
+            '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
+            '-probesize', RK_RTSP_PROBE_SIZE,
             '-select_streams', 'v:0',
             '-show_entries', 'stream=codec_name',
             '-of', 'json',
             rtspUrl
         ];
-        const result = await ProcessUtils.spawnCommand('ffprobe', args, { timeout: 4000 });
+        const result = await ProcessUtils.spawnCommand(getFfprobeBinary(), args, { timeout: 8000 });
         const raw = result.stdout || '';
         const parsed = raw ? JSON.parse(raw) : {};
         const codec = parsed && parsed.streams && parsed.streams[0] && parsed.streams[0].codec_name
@@ -399,9 +427,12 @@ async function launchRockchipTranscoder(inputRtsp) {
             '-hide_banner',
             '-loglevel', 'warning',
             '-rtsp_transport', 'tcp',
+            '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
+            '-probesize', RK_RTSP_PROBE_SIZE,
             '-c:v', 'hevc_rkmpp',
             '-i', inputRtsp,
             '-an',
+            '-pix_fmt', 'nv12',
             '-c:v', 'h264_rkmpp',
             '-f', 'rtsp',
             '-rtsp_flags', 'listen',
@@ -413,7 +444,7 @@ async function launchRockchipTranscoder(inputRtsp) {
             rkLog('info', `ffmpeg版本: ${ffmpegVersion}`);
         }
         rkLog('info', `启动Rockchip硬件转码 (HEVC→H264)，输入=${maskRtspUrl(inputRtsp)}，输出=${RK_LOCAL_RTSP_LISTEN}`);
-        rkTranscoder = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        rkTranscoder = spawn(getFfmpegBinary(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
         rkTranscoder.stdout.on('data', d => {
             const t = d.toString();
             if (t.trim()) rkLog('info', `转码输出: ${t.trim()}`);
