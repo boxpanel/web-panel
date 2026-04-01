@@ -2481,7 +2481,6 @@ show_result() {
     fi
     printf "  Web Panel地址: %bhttp://%s:%s%b\n" "${GREEN}" "$LOCAL_IP" "$PORT" "${NC}"
     printf "  RTSPtoWeb地址: %bhttp://%s:8084%b\n" "${GREEN}" "$LOCAL_IP" "${NC}"
-    printf "  RTSPtoWeb RTSP端口: %b5541%b\n" "${GREEN}" "${NC}"
     printf "  用户名: %b%s%b\n" "${GREEN}" "$USERNAME" "${NC}"
     printf "  密码: %b%s%b\n" "${GREEN}" "$PASSWORD" "${NC}"
     echo
