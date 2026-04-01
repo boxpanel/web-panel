@@ -933,14 +933,13 @@ install_mediamtx() {
         return 0
     fi
 
-    if command -v mediamtx >/dev/null 2>&1; then
-        print_message "MediaMTX已安装: $(command -v mediamtx)"
-        return 0
-    fi
-
     if [ "$(id -u)" -ne 0 ]; then
         print_warning "当前非root用户，跳过MediaMTX安装（需要写入/usr/local/bin与systemd）"
         return 0
+    fi
+
+    if command -v mediamtx >/dev/null 2>&1; then
+        print_message "MediaMTX已安装: $(command -v mediamtx)（将确保配置与服务文件正确）"
     fi
 
     ARCH=$(uname -m 2>/dev/null || echo unknown)
@@ -949,46 +948,47 @@ install_mediamtx() {
         ASSET_ARCH="linux_arm64v8"
     fi
 
-    print_message "正在安装MediaMTX..."
-    URL=$(curl -sL https://api.github.com/repos/bluenviron/mediamtx/releases/latest | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
-    if [ -z "$URL" ]; then
-        print_warning "获取MediaMTX下载地址失败，跳过安装"
-        return 0
+    if [ ! -x "/usr/local/bin/mediamtx" ]; then
+        print_message "正在安装MediaMTX..."
+        URL=$(curl -sL https://api.github.com/repos/bluenviron/mediamtx/releases/latest | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
+        if [ -z "$URL" ]; then
+            print_warning "获取MediaMTX下载地址失败，跳过安装"
+            return 0
+        fi
+
+        TMP_DIR="/tmp/mediamtx-install"
+        rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
+        mkdir -p "$TMP_DIR" || return 0
+
+        if ! curl -fsSL -o "$TMP_DIR/mediamtx.tar.gz" "$URL"; then
+            print_warning "下载MediaMTX失败，跳过安装"
+            return 0
+        fi
+
+        if ! tar -xzf "$TMP_DIR/mediamtx.tar.gz" -C "$TMP_DIR"; then
+            print_warning "解压MediaMTX失败，跳过安装"
+            return 0
+        fi
+
+        if [ ! -f "$TMP_DIR/mediamtx" ]; then
+            print_warning "未找到MediaMTX二进制文件，跳过安装"
+            return 0
+        fi
+
+        mv -f "$TMP_DIR/mediamtx" /usr/local/bin/mediamtx >/dev/null 2>&1 || true
+        chmod +x /usr/local/bin/mediamtx >/dev/null 2>&1 || true
     fi
-
-    TMP_DIR="/tmp/mediamtx-install"
-    rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
-    mkdir -p "$TMP_DIR" || return 0
-
-    if ! curl -fsSL -o "$TMP_DIR/mediamtx.tar.gz" "$URL"; then
-        print_warning "下载MediaMTX失败，跳过安装"
-        return 0
-    fi
-
-    if ! tar -xzf "$TMP_DIR/mediamtx.tar.gz" -C "$TMP_DIR"; then
-        print_warning "解压MediaMTX失败，跳过安装"
-        return 0
-    fi
-
-    if [ ! -f "$TMP_DIR/mediamtx" ]; then
-        print_warning "未找到MediaMTX二进制文件，跳过安装"
-        return 0
-    fi
-
-    mv -f "$TMP_DIR/mediamtx" /usr/local/bin/mediamtx >/dev/null 2>&1 || true
-    chmod +x /usr/local/bin/mediamtx >/dev/null 2>&1 || true
 
     LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     if [ -z "$LOCAL_IP" ] || [ "$LOCAL_IP" = "localhost" ]; then
         LOCAL_IP="127.0.0.1"
     fi
 
-    if [ -z "$INSTALL_DIR" ]; then
-        INSTALL_DIR="$(pwd)"
-    fi
-    mkdir -p "$INSTALL_DIR" >/dev/null 2>&1 || true
+    MTX_CONF_DIR="/etc/mediamtx"
+    MTX_CONF_PATH="$MTX_CONF_DIR/mediamtx.yml"
+    mkdir -p "$MTX_CONF_DIR" >/dev/null 2>&1 || true
 
-    cat >"$INSTALL_DIR/mediamtx.yml" <<EOF
+    cat >"$MTX_CONF_PATH" <<EOF
 logLevel: info
 rtsp: yes
 rtspAddress: :8554
@@ -998,6 +998,7 @@ webrtcAddress: :8889
 webrtcAllowOrigin: '*'
 webrtcAdditionalHosts: ['$LOCAL_IP']
 paths:
+  all_others: {}
   camera: {}
 EOF
 
@@ -1010,7 +1011,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/mediamtx $INSTALL_DIR/mediamtx.yml
+ExecStart=/usr/local/bin/mediamtx $MTX_CONF_PATH
 Restart=always
 RestartSec=2
 
