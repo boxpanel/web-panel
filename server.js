@@ -225,6 +225,7 @@ let rkLastStderrLines = [];
 let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
 let rkLastFailureReason = '';
+let rkRtspToWebRtspPortCache = { port: null, checkedAt: 0 };
 
 // RTSPtoWeb服务状态缓存
 let lastRTSPStatus = null;
@@ -456,8 +457,39 @@ async function isTcpPortOpen(host, port, timeoutMs = 500) {
     }
 }
 
+async function getRtspToWebRtspPortFromConfig() {
+    const now = Date.now();
+    if (rkRtspToWebRtspPortCache.port !== null && (now - rkRtspToWebRtspPortCache.checkedAt) < 60000) {
+        return rkRtspToWebRtspPortCache.port;
+    }
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+        const configPath = path.join(__dirname, 'RTSPtoWeb', 'config.json');
+        const text = await fs.readFile(configPath, 'utf8');
+        const cfg = JSON.parse(text);
+        const raw = cfg && cfg.server && cfg.server.rtsp_port ? String(cfg.server.rtsp_port) : '';
+        const portStr = raw.includes(':') ? raw.split(':').pop() : raw;
+        const port = portStr ? parseInt(portStr, 10) : NaN;
+        const finalPort = Number.isFinite(port) ? port : null;
+        rkRtspToWebRtspPortCache = { port: finalPort, checkedAt: now };
+        if (finalPort) {
+            rkLog('info', `检测到RTSPtoWeb配置RTSP端口: ${finalPort}（注意：8084是HTTP API端口）`);
+        }
+        return finalPort;
+    } catch (e) {
+        rkRtspToWebRtspPortCache = { port: null, checkedAt: now };
+        rkLog('warn', `读取RTSPtoWeb配置RTSP端口失败: ${e.message}`);
+        return null;
+    }
+}
+
 async function findLocalRtspServerPort() {
     const candidates = [8554, 8555, 8556, 8557, 8558, 8559, 8560];
+    const rtspToWebRtspPort = await getRtspToWebRtspPortFromConfig();
+    if (rtspToWebRtspPort && !candidates.includes(rtspToWebRtspPort)) {
+        candidates.unshift(rtspToWebRtspPort);
+    }
     for (const p of candidates) {
         // eslint-disable-next-line no-await-in-loop
         const ok = await isTcpPortOpen('127.0.0.1', p, 500);
