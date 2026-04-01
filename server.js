@@ -219,7 +219,7 @@ const RK_LOCAL_RTSP = 'rtsp://127.0.0.1:8554/camera_h264';
 const RK_RTSP_ANALYZE_DURATION = '10000000';
 const RK_RTSP_PROBE_SIZE = '10000000';
 const RK_TRANSCODE_READY_TIMEOUT_MS = 60000;
-const RK_HEVC_DECODE_TEST_SECONDS = 3;
+const RK_HEVC_DECODE_PROBE_TIMEOUT_MS = 60000;
 let rkLastStderrLines = [];
 let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
@@ -348,7 +348,7 @@ async function getFfmpegVersionText() {
 
 async function testHevcDecodeWithRkmpp(inputRtsp) {
     const ffmpegBin = getFfmpegBinary();
-    rkLog('info', `转码前检查：尝试HEVC硬解探测(${RK_HEVC_DECODE_TEST_SECONDS}s)：${maskRtspUrl(inputRtsp)}，ffmpeg=${ffmpegBin}`);
+    rkLog('info', `转码前检查：尝试HEVC硬解解码首帧：${maskRtspUrl(inputRtsp)}，ffmpeg=${ffmpegBin}`);
     const args = [
         '-hide_banner',
         '-loglevel', 'warning',
@@ -357,18 +357,64 @@ async function testHevcDecodeWithRkmpp(inputRtsp) {
         '-probesize', RK_RTSP_PROBE_SIZE,
         '-c:v', 'hevc_rkmpp',
         '-i', inputRtsp,
-        '-t', String(RK_HEVC_DECODE_TEST_SECONDS),
         '-an',
+        '-frames:v', '1',
         '-f', 'null',
         '-'
     ];
     try {
-        await ProcessUtils.spawnCommand(ffmpegBin, args, { timeout: (RK_HEVC_DECODE_TEST_SECONDS * 1000) + 12000 });
+        await ProcessUtils.spawnCommand(ffmpegBin, args, { timeout: RK_HEVC_DECODE_PROBE_TIMEOUT_MS });
         rkLog('info', 'HEVC硬解探测通过');
         return true;
     } catch (e) {
         const tail = tailText(e && e.stderr ? e.stderr : '', 30) || (e && e.message ? e.message : '未知');
         rkLog('error', `HEVC硬解探测失败（转码不会启动）：${tail}`);
+        return false;
+    }
+}
+
+async function testHevcToH264EncodeWithRkmpp(inputRtsp) {
+    const ffmpegBin = getFfmpegBinary();
+    rkLog('info', `转码前检查：尝试HEVC→H264硬件转码首帧：${maskRtspUrl(inputRtsp)}，ffmpeg=${ffmpegBin}`);
+    const args = [
+        '-hide_banner',
+        '-loglevel', 'warning',
+        '-rtsp_transport', 'tcp',
+        '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
+        '-probesize', RK_RTSP_PROBE_SIZE,
+        '-c:v', 'hevc_rkmpp',
+        '-i', inputRtsp,
+        '-an',
+        '-pix_fmt', 'nv12',
+        '-c:v', 'h264_rkmpp',
+        '-frames:v', '1',
+        '-f', 'null',
+        '-'
+    ];
+    try {
+        await ProcessUtils.spawnCommand(ffmpegBin, args, { timeout: RK_HEVC_DECODE_PROBE_TIMEOUT_MS });
+        rkLog('info', 'HEVC→H264硬件转码首帧测试通过');
+        return true;
+    } catch (e) {
+        const tail = tailText(e && e.stderr ? e.stderr : '', 30) || (e && e.message ? e.message : '未知');
+        rkLog('error', `HEVC→H264硬件转码首帧测试失败：${tail}`);
+        return false;
+    }
+}
+
+async function checkLocalPortAvailable(port) {
+    try {
+        const net = require('net');
+        await new Promise((resolve, reject) => {
+            const server = net.createServer();
+            server.once('error', reject);
+            server.listen(port, '0.0.0.0', () => {
+                server.close(resolve);
+            });
+        });
+        return true;
+    } catch (e) {
+        rkLog('warn', `端口检查失败：端口${port}可能被占用或无权限，error=${e.message}`);
         return false;
     }
 }
@@ -460,10 +506,17 @@ async function launchRockchipTranscoder(inputRtsp) {
             try { rkTranscoder.kill('SIGTERM'); } catch {}
             rkTranscoder = null;
         }
-        const decodeOk = await testHevcDecodeWithRkmpp(inputRtsp);
-        if (!decodeOk) {
+
+        const portOk = await checkLocalPortAvailable(8554);
+        if (!portOk) {
             return false;
         }
+
+        const decodeOk = await testHevcDecodeWithRkmpp(inputRtsp);
+        if (!decodeOk) return false;
+
+        const transcodeOk = await testHevcToH264EncodeWithRkmpp(inputRtsp);
+        if (!transcodeOk) return false;
 
         rkLastStderrLines = [];
         const { spawn } = require('child_process');
