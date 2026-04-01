@@ -882,6 +882,8 @@ install_dependencies() {
 
     # 安装媒体工具（ffmpeg/ffprobe，Rockchip设备可选编译ffmpeg-rockchip）
     install_media_tools
+
+    install_mediamtx
     
     # 检查Node.js是否已安装
     if ! command -v node >/dev/null 2>&1; then
@@ -923,6 +925,107 @@ install_dependencies() {
             print_warning "Go语言版本过低 (当前: $GO_VERSION, 需要: >=1.18.0)，正在更新..."
             install_golang
         fi
+    fi
+}
+
+install_mediamtx() {
+    if [ "$(uname -s 2>/dev/null)" != "Linux" ]; then
+        return 0
+    fi
+
+    if command -v mediamtx >/dev/null 2>&1; then
+        print_message "MediaMTX已安装: $(command -v mediamtx)"
+        return 0
+    fi
+
+    if [ "$(id -u)" -ne 0 ]; then
+        print_warning "当前非root用户，跳过MediaMTX安装（需要写入/usr/local/bin与systemd）"
+        return 0
+    fi
+
+    ARCH=$(uname -m 2>/dev/null || echo unknown)
+    ASSET_ARCH="linux_amd64"
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+        ASSET_ARCH="linux_arm64v8"
+    fi
+
+    print_message "正在安装MediaMTX..."
+    URL=$(curl -sL https://api.github.com/repos/bluenviron/mediamtx/releases/latest | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
+    if [ -z "$URL" ]; then
+        print_warning "获取MediaMTX下载地址失败，跳过安装"
+        return 0
+    fi
+
+    TMP_DIR="/tmp/mediamtx-install"
+    rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
+    mkdir -p "$TMP_DIR" || return 0
+
+    if ! curl -fsSL -o "$TMP_DIR/mediamtx.tar.gz" "$URL"; then
+        print_warning "下载MediaMTX失败，跳过安装"
+        return 0
+    fi
+
+    if ! tar -xzf "$TMP_DIR/mediamtx.tar.gz" -C "$TMP_DIR"; then
+        print_warning "解压MediaMTX失败，跳过安装"
+        return 0
+    fi
+
+    if [ ! -f "$TMP_DIR/mediamtx" ]; then
+        print_warning "未找到MediaMTX二进制文件，跳过安装"
+        return 0
+    fi
+
+    mv -f "$TMP_DIR/mediamtx" /usr/local/bin/mediamtx >/dev/null 2>&1 || true
+    chmod +x /usr/local/bin/mediamtx >/dev/null 2>&1 || true
+
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    if [ -z "$LOCAL_IP" ] || [ "$LOCAL_IP" = "localhost" ]; then
+        LOCAL_IP="127.0.0.1"
+    fi
+
+    if [ -z "$INSTALL_DIR" ]; then
+        INSTALL_DIR="$(pwd)"
+    fi
+    mkdir -p "$INSTALL_DIR" >/dev/null 2>&1 || true
+
+    cat >"$INSTALL_DIR/mediamtx.yml" <<EOF
+logLevel: info
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp]
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: '*'
+webrtcAdditionalHosts: ['$LOCAL_IP']
+paths:
+  camera: {}
+EOF
+
+    SERVICE_FILE="/etc/systemd/system/mediamtx.service"
+    cat >"$SERVICE_FILE" <<EOF
+[Unit]
+Description=MediaMTX
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mediamtx $INSTALL_DIR/mediamtx.yml
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable mediamtx >/dev/null 2>&1 || true
+    systemctl restart mediamtx >/dev/null 2>&1 || true
+
+    if systemctl status mediamtx >/dev/null 2>&1; then
+        print_success "MediaMTX安装并启动成功"
+    else
+        print_warning "MediaMTX安装完成但启动失败，请检查: systemctl status mediamtx"
     fi
 }
 

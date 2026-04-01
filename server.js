@@ -225,6 +225,9 @@ let rkLastStderrLines = [];
 let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
 let rkLastFailureReason = '';
+let mediamtxPublisher = null;
+const MEDIAMTX_RTSP_PUBLISH_URL = 'rtsp://127.0.0.1:8554/camera';
+const MEDIAMTX_WHEP_PATH = 'camera';
 
 // RTSPtoWeb服务状态缓存
 let lastRTSPStatus = null;
@@ -261,6 +264,10 @@ function maskRtspUrl(rtspUrl) {
 
 function rkLog(level, message) {
     addCameraLog(level, `[RK转码] ${message}`);
+}
+
+function mtxLog(level, message) {
+    addCameraLog(level, `[MediaMTX] ${message}`);
 }
 
 function sanitizeFfmpegText(text) {
@@ -353,6 +360,141 @@ async function getFfmpegVersionText() {
         rkFfmpegVersionCache = { text: '', checkedAt: now };
         rkLog('warn', `获取ffmpeg版本失败: ${e.message}`);
         return '';
+    }
+}
+
+async function checkTcpConnect(host, port, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+        const net = require('net');
+        const socket = new net.Socket();
+        let done = false;
+        const finish = (ok) => {
+            if (done) return;
+            done = true;
+            try { socket.destroy(); } catch {}
+            resolve(ok);
+        };
+        socket.setTimeout(timeoutMs);
+        socket.once('connect', () => finish(true));
+        socket.once('timeout', () => finish(false));
+        socket.once('error', () => finish(false));
+        try {
+            socket.connect(port, host);
+        } catch {
+            finish(false);
+        }
+    });
+}
+
+async function isMediamtxAvailable() {
+    if (os.platform() !== 'linux') return false;
+    const rtspOk = await checkTcpConnect('127.0.0.1', 8554, 1200);
+    const webrtcOk = await checkTcpConnect('127.0.0.1', 8889, 1200);
+    if (!rtspOk) mtxLog('warn', 'MediaMTX RTSP端口(8554)不可用');
+    if (!webrtcOk) mtxLog('warn', 'MediaMTX WebRTC端口(8889)不可用');
+    return rtspOk && webrtcOk;
+}
+
+async function stopMediamtxPublisher() {
+    try {
+        if (mediamtxPublisher && mediamtxPublisher.pid) {
+            mtxLog('info', '停止MediaMTX推流进程');
+            mediamtxPublisher.kill('SIGTERM');
+            mediamtxPublisher = null;
+        }
+    } catch (e) {
+        mtxLog('warn', `停止MediaMTX推流进程失败: ${e.message}`);
+    }
+}
+
+async function waitForMediamtxPublishReady(expectedCodec, timeoutMs = 20000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const codec = await detectRtspVideoCodecSilent('rtsp://127.0.0.1:8554/camera');
+        if (codec === expectedCodec) {
+            mtxLog('info', `MediaMTX推流已就绪: codec=${codec}`);
+            return true;
+        }
+        await new Promise(r => setTimeout(r, 500));
+    }
+    mtxLog('warn', `等待MediaMTX推流就绪超时: ${Math.floor(timeoutMs / 1000)}s`);
+    return false;
+}
+
+async function launchMediamtxPublisher({ inputRtsp, mode }) {
+    try {
+        await stopMediamtxPublisher();
+
+        const ok = await isMediamtxAvailable();
+        if (!ok) {
+            throw new Error('MediaMTX未运行或端口不可用(8554/8889)');
+        }
+
+        const ffmpegBin = getFfmpegBinary();
+        const baseArgs = [
+            '-hide_banner',
+            '-loglevel', 'warning',
+            '-rtsp_transport', 'tcp',
+            '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
+            '-probesize', RK_RTSP_PROBE_SIZE
+        ];
+
+        let args = [];
+        let expectedCodec = 'h264';
+
+        if (mode === 'transcode_h265_to_h264') {
+            expectedCodec = 'h264';
+            args = [
+                ...baseArgs,
+                '-c:v', 'hevc_rkmpp',
+                '-i', inputRtsp,
+                '-an',
+                '-pix_fmt', 'nv12',
+                '-c:v', 'h264_rkmpp',
+                '-f', 'rtsp',
+                '-rtsp_transport', 'tcp',
+                MEDIAMTX_RTSP_PUBLISH_URL
+            ];
+            mtxLog('info', `启动推流(转码HEVC→H264)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+        } else {
+            expectedCodec = 'h264';
+            args = [
+                ...baseArgs,
+                '-i', inputRtsp,
+                '-an',
+                '-c', 'copy',
+                '-f', 'rtsp',
+                '-rtsp_transport', 'tcp',
+                MEDIAMTX_RTSP_PUBLISH_URL
+            ];
+            mtxLog('info', `启动推流(直通copy)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+        }
+
+        const { spawn } = require('child_process');
+        mediamtxPublisher = spawn(ffmpegBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        mediamtxPublisher.stdout.on('data', d => {
+            const t = d.toString().trim();
+            if (t) mtxLog('info', `推流输出: ${sanitizeFfmpegText(t)}`);
+        });
+        mediamtxPublisher.stderr.on('data', d => {
+            const t = d.toString().trim();
+            if (t) mtxLog('warn', `推流日志: ${sanitizeFfmpegText(t)}`);
+        });
+        mediamtxPublisher.on('close', code => {
+            mtxLog('warn', `推流进程已退出，code=${code}`);
+            mediamtxPublisher = null;
+        });
+
+        const ready = await waitForMediamtxPublishReady(expectedCodec, 25000);
+        if (!ready) {
+            await stopMediamtxPublisher();
+            throw new Error('MediaMTX推流未就绪');
+        }
+        return true;
+    } catch (e) {
+        mtxLog('error', `启动MediaMTX推流失败: ${e.message}`);
+        await stopMediamtxPublisher();
+        return false;
     }
 }
 
@@ -3106,6 +3248,82 @@ app.post('/api/camera/rtsp2web/stream', requireAuth, async (req, res) => {
         console.error('RTSPtoWeb流管理失败:', error);
         addCameraLog('error', `RTSPtoWeb流管理失败: ${error.message}`);
         res.status(500).json({ error: `RTSPtoWeb流管理失败: ${error.message}` });
+    }
+});
+
+app.get('/api/camera/mediamtx/status', requireAuth, async (req, res) => {
+    try {
+        const available = await isMediamtxAvailable();
+        res.json({ success: true, available });
+    } catch (e) {
+        res.json({ success: true, available: false });
+    }
+});
+
+app.post('/api/camera/mediamtx/stop', requireAuth, async (req, res) => {
+    try {
+        await stopMediamtxPublisher();
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
+    try {
+        const ip = await db.getConfig('camera_ip');
+        const port = await db.getConfig('camera_port') || '554';
+        const username = await db.getConfig('camera_username');
+        const password = await db.getConfig('camera_password');
+        const streamUrl = await db.getConfig('camera_stream_url');
+
+        if (!ip) {
+            return res.status(400).json({ error: '摄像头IP地址未配置' });
+        }
+
+        let rtspUrl;
+        if (streamUrl && String(streamUrl).startsWith('rtsp://')) {
+            rtspUrl = streamUrl;
+        } else {
+            const auth = username && password ? `${username}:${password}@` : '';
+            const urlPath = streamUrl || '/stream1';
+            rtspUrl = `rtsp://${auth}${ip}:${port}${urlPath}`;
+        }
+
+        addCameraLog('info', `开始使用MediaMTX推流，输入RTSP: ${maskRtspUrl(rtspUrl)}`);
+
+        const codec = await detectRtspVideoCodec(rtspUrl);
+        if (!codec) {
+            return res.status(500).json({ error: '无法识别摄像头视频编码' });
+        }
+
+        if (codec === 'hevc' || codec === 'h265') {
+            rkLog('info', '检测到H265(HEVC)，将使用ffmpeg-rockchip转码后推送到MediaMTX');
+            if (!isRockchipRkmppAvailable()) {
+                return res.status(500).json({ error: '当前设备不支持Rockchip硬件转码' });
+            }
+            const hasRkmpp = await checkFfmpegRkmppSupport();
+            if (!hasRkmpp) {
+                return res.status(500).json({ error: 'ffmpeg未启用rkmpp，无法对H265进行硬件转码' });
+            }
+            const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'transcode_h265_to_h264' });
+            if (!started) {
+                return res.status(500).json({ error: '启动MediaMTX推流失败' });
+            }
+        } else if (codec === 'h264') {
+            const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'copy' });
+            if (!started) {
+                return res.status(500).json({ error: '启动MediaMTX推流失败' });
+            }
+        } else {
+            return res.status(500).json({ error: `暂不支持的视频编码: ${codec}` });
+        }
+
+        const host = req.hostname || 'localhost';
+        const whepUrl = `http://${host}:8889/${MEDIAMTX_WHEP_PATH}/whep`;
+        res.json({ success: true, whepUrl });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
