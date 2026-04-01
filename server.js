@@ -220,6 +220,7 @@ const RK_RTSP_ANALYZE_DURATION = '10000000';
 const RK_RTSP_PROBE_SIZE = '10000000';
 const RK_TRANSCODE_READY_TIMEOUT_MS = 60000;
 const RK_HEVC_DECODE_PROBE_TIMEOUT_MS = 60000;
+let rkRtspPort = 8554;
 let rkLastStderrLines = [];
 let rkFfmpegRkmppSupportCache = { ok: null, checkedAt: 0 };
 let rkFfmpegVersionCache = { text: null, checkedAt: 0 };
@@ -419,6 +420,23 @@ async function checkLocalPortAvailable(port) {
     }
 }
 
+function getLocalRtspListenUrl(port) {
+    return `rtsp://0.0.0.0:${port}/camera_h264`;
+}
+function getLocalRtspUrl(port) {
+    return `rtsp://127.0.0.1:${port}/camera_h264`;
+}
+
+async function allocRtspPort(basePort = 8554, tries = 16) {
+    for (let i = 0; i < tries; i++) {
+        const p = basePort + i;
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await checkLocalPortAvailable(p);
+        if (ok) return p;
+    }
+    return null;
+}
+
 async function detectRtspVideoCodec(rtspUrl) {
     try {
         rkLog('info', `检测输入RTSP视频编码: ${maskRtspUrl(rtspUrl)}`);
@@ -507,10 +525,12 @@ async function launchRockchipTranscoder(inputRtsp) {
             rkTranscoder = null;
         }
 
-        const portOk = await checkLocalPortAvailable(8554);
-        if (!portOk) {
+        const chosenPort = await allocRtspPort(8554, 16);
+        if (!chosenPort) {
+            rkLog('warn', '端口检查失败：在8554-8569均无法监听，放弃启动转码');
             return false;
         }
+        rkRtspPort = chosenPort;
 
         const decodeOk = await testHevcDecodeWithRkmpp(inputRtsp);
         if (!decodeOk) return false;
@@ -534,13 +554,13 @@ async function launchRockchipTranscoder(inputRtsp) {
             '-f', 'rtsp',
             '-rtsp_flags', 'listen',
             '-rtsp_transport', 'tcp',
-            RK_LOCAL_RTSP_LISTEN
+            getLocalRtspListenUrl(rkRtspPort)
         ];
         const ffmpegVersion = await getFfmpegVersionText();
         if (ffmpegVersion) {
             rkLog('info', `ffmpeg版本: ${ffmpegVersion}`);
         }
-        rkLog('info', `启动Rockchip硬件转码 (HEVC→H264)，输入=${maskRtspUrl(inputRtsp)}，输出=${RK_LOCAL_RTSP_LISTEN}`);
+        rkLog('info', `启动Rockchip硬件转码 (HEVC→H264)，输入=${maskRtspUrl(inputRtsp)}，输出=${getLocalRtspListenUrl(rkRtspPort)}`);
         rkTranscoder = spawn(getFfmpegBinary(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
         rkTranscoder.stdout.on('data', d => {
             const t = d.toString();
@@ -560,7 +580,7 @@ async function launchRockchipTranscoder(inputRtsp) {
             rkTranscoder = null;
         });
         const ready = await waitForRtspCodecReady({
-            rtspUrl: RK_LOCAL_RTSP,
+            rtspUrl: getLocalRtspUrl(rkRtspPort),
             expectedCodecs: ['h264'],
             timeoutMs: RK_TRANSCODE_READY_TIMEOUT_MS
         });
@@ -2818,8 +2838,8 @@ async function updateRTSPtoWebConfig() {
                 throw new Error('H265(HEVC)硬件转码未就绪或启动失败');
             }
 
-            targetRtspUrl = RK_LOCAL_RTSP;
-            rkLog('info', `硬件转码成功，输出RTSP: ${RK_LOCAL_RTSP}`);
+            targetRtspUrl = getLocalRtspUrl(rkRtspPort);
+            rkLog('info', `硬件转码成功，输出RTSP: ${targetRtspUrl}`);
         } else if (codec) {
             stopRockchipTranscoder();
             rkLog('info', `输入编码为${codec}，无需硬件转码，直接RTSP播放`);
