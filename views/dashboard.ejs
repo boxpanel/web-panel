@@ -8250,6 +8250,15 @@ let radarVisibilityBound = false;
                         parsed = JSON.parse(errText);
                     } catch (e) {
                     }
+                    if (parsed) {
+                        addCameraLogToUI('error', `MediaMTX推流失败: ${parsed.error || `HTTP ${mtxResponse.status}`}`);
+                        if (parsed.details) {
+                            addCameraLogToUI('warn', `失败详情: ${parsed.details}`);
+                        }
+                        if (parsed.stderrTail && Array.isArray(parsed.stderrTail) && parsed.stderrTail.length) {
+                            addCameraLogToUI('warn', `推流stderr尾部: ${parsed.stderrTail.join(' | ')}`);
+                        }
+                    }
                     throw new Error((parsed && parsed.error) ? parsed.error : (errText || `MediaMTX推流失败 (HTTP ${mtxResponse.status})`));
                 }
                 
