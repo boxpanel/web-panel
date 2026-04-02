@@ -278,7 +278,7 @@ function sanitizePathName(name) {
     return raw.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec }) {
+function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps }) {
     const ffmpegBin = getFfmpegBinary();
     const baseInput = [
         ffmpegBin,
@@ -307,11 +307,17 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec }) {
         ].join(' ');
     }
 
+    const fpsFilter = (() => {
+        const defFps = parseInt(process.env.MEDIAMTX_DEFAULT_FPS || '25', 10);
+        const srcFps = (typeof inputFps === 'number' && inputFps > 0) ? Math.round(inputFps) : null;
+        return `fps=${srcFps || defFps}`;
+    })();
+
     return [
         ...baseInput,
         '-c:v', 'hevc_rkmpp',
         '-i', inputRtsp,
-        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,fps=25',
+        '-vf', `scale=trunc(iw/2)*2:trunc(ih/2)*2,format=nv12,${fpsFilter}`,
         '-vsync', 'drop',
         '-an',
         '-c:v', 'h264_rkmpp',
@@ -1091,7 +1097,7 @@ async function detectRtspVideoInfo(rtspUrl) {
             '-analyzeduration', RTSP_PROBE_ANALYZE_FAST,
             '-probesize', RTSP_PROBE_SIZE_FAST,
             '-select_streams', 'v:0',
-            '-show_entries', 'stream=codec_name,profile,level,width,height',
+            '-show_entries', 'stream=codec_name,profile,level,width,height,avg_frame_rate,r_frame_rate',
             '-of', 'json',
             rtspUrl
         ];
@@ -1105,9 +1111,21 @@ async function detectRtspVideoInfo(rtspUrl) {
             const levelFast = typeof streamFast.level === 'number' ? streamFast.level : null;
             const widthFast = typeof streamFast.width === 'number' ? streamFast.width : null;
             const heightFast = typeof streamFast.height === 'number' ? streamFast.height : null;
+            const parseFps = (val) => {
+                if (!val) return null;
+                const s = String(val);
+                if (s.includes('/')) {
+                    const [n, d] = s.split('/').map(x => parseInt(x, 10));
+                    if (n > 0 && d > 0) return n / d;
+                    return null;
+                }
+                const f = parseFloat(s);
+                return isNaN(f) ? null : f;
+            };
+            const fpsFast = parseFps(streamFast && streamFast.avg_frame_rate) || parseFps(streamFast && streamFast.r_frame_rate) || null;
             if (codecFast) {
-                rkLog('info', `快速检测结果: codec=${codecFast}, profile=${profileFast || '未知'}, level=${levelFast || '未知'}, 分辨率=${widthFast || '?'}x${heightFast || '?'}`);
-                return { codec: codecFast, profile: profileFast, level: levelFast, width: widthFast, height: heightFast };
+                rkLog('info', `快速检测结果: codec=${codecFast}, profile=${profileFast || '未知'}, level=${levelFast || '未知'}, 分辨率=${widthFast || '?'}x${heightFast || '?'}, fps=${fpsFast || '未知'}`);
+                return { codec: codecFast, profile: profileFast, level: levelFast, width: widthFast, height: heightFast, fps: fpsFast };
             }
         } catch {}
 
@@ -1118,7 +1136,7 @@ async function detectRtspVideoInfo(rtspUrl) {
             '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
             '-probesize', RK_RTSP_PROBE_SIZE,
             '-select_streams', 'v:0',
-            '-show_entries', 'stream=codec_name,profile,level,width,height',
+            '-show_entries', 'stream=codec_name,profile,level,width,height,avg_frame_rate,r_frame_rate',
             '-of', 'json',
             rtspUrl
         ];
@@ -1131,11 +1149,24 @@ async function detectRtspVideoInfo(rtspUrl) {
         const level = typeof stream.level === 'number' ? stream.level : null;
         const width = typeof stream.width === 'number' ? stream.width : null;
         const height = typeof stream.height === 'number' ? stream.height : null;
+        const parseFps = (val) => {
+            if (!val) return null;
+            const s = String(val);
+            if (s.includes('/')) {
+                const [n, d] = s.split('/').map(x => parseInt(x, 10));
+                if (n > 0 && d > 0) return n / d;
+                return null;
+            }
+            const f = parseFloat(s);
+            return isNaN(f) ? null : f;
+        };
+        const fps = parseFps(stream && stream.avg_frame_rate) || parseFps(stream && stream.r_frame_rate) || null;
         rkLog('info', `详细检测结果: codec=${codec || '未知'}, profile=${profile || '未知'}, level=${level || '未知'}, 分辨率=${width || '?'}x${height || '?'}`);
-        return { codec, profile, level, width, height };
+        if (fps) rkLog('info', `检测到帧率: fps=${fps}`);
+        return { codec, profile, level, width, height, fps };
     } catch (e) {
         rkLog('warn', `检测视频信息失败: ${e.message}`);
-        return { codec: null, profile: '', level: null, width: null, height: null };
+        return { codec: null, profile: '', level: null, width: null, height: null, fps: null };
     }
 }
 
@@ -3451,7 +3482,7 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
 
             if (sourceCodec === 'h265') {
-                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265' });
+                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null) });
                 mediamtxActivePathConfigs.set(pathName, {
                     runOnInit: cmd,
                     runOnInitRestart: true,
