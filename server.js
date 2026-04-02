@@ -234,6 +234,7 @@ const MEDIAMTX_RTSP_PORT = parseInt(process.env.MEDIAMTX_RTSP_PORT || '8554', 10
 const MEDIAMTX_WEBRTC_PORT = parseInt(process.env.MEDIAMTX_WEBRTC_PORT || '8889', 10);
 const MEDIAMTX_RTSP_PUBLISH_URL = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDIAMTX_PATH}`;
 const RTSP_IO_TIMEOUT_US = parseInt(process.env.RTSP_IO_TIMEOUT_US || '5000000', 10);
+const RTSP_USE_STIMEOUT = String(process.env.RTSP_USE_STIMEOUT || '') === '1';
 const RTSP_PROBE_ANALYZE_FAST = process.env.RTSP_PROBE_ANALYZE_FAST || '2000000';
 const RTSP_PROBE_SIZE_FAST = process.env.RTSP_PROBE_SIZE_FAST || '2000000';
 const MEDIAMTX_ANALYZE_DURATION = process.env.MEDIAMTX_ANALYZE_DURATION || '2000000';
@@ -243,7 +244,7 @@ const MEDIAMTX_MAX_WIDTH = parseInt(process.env.MEDIAMTX_MAX_WIDTH || '3840', 10
 const MEDIAMTX_MAX_HEIGHT = parseInt(process.env.MEDIAMTX_MAX_HEIGHT || '2160', 10);
 
 function getRtspTimeoutArgs() {
-    if (os.platform() === 'linux') {
+    if (RTSP_USE_STIMEOUT) {
         return ['-stimeout', String(RTSP_IO_TIMEOUT_US)];
     }
     return [];
