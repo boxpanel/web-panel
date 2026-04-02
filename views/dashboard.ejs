@@ -8458,13 +8458,21 @@ let radarVisibilityBound = false;
                 let whepResponse = null;
                 let lastWhepErrorText = '';
                 while (Date.now() - whepStartAt < 20000) {
-                    whepResponse = await fetch(whepUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/sdp'
-                        },
-                        body: rtspPlayer.localDescription.sdp
-                    });
+                    try {
+                        whepResponse = await fetch(whepUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/sdp'
+                            },
+                            body: rtspPlayer.localDescription.sdp
+                        });
+                    } catch (e) {
+                        const msg = e && e.message ? String(e.message) : '';
+                        lastWhepErrorText = msg || 'Failed to fetch';
+                        addCameraLogToUI('warn', `WHEP请求失败(${lastWhepErrorText})，重试中...`);
+                        await new Promise(r => setTimeout(r, 700));
+                        continue;
+                    }
 
                     if (whepResponse.ok) break;
 
