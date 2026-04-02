@@ -245,7 +245,7 @@ const MEDIAMTX_MAX_HEIGHT = parseInt(process.env.MEDIAMTX_MAX_HEIGHT || '2160', 
 const MEDIAMTX_USE_CONFIG_TRANSCODE = os.platform() === 'linux' && String(process.env.MEDIAMTX_USE_CONFIG_TRANSCODE || '1') !== '0';
 const MEDIAMTX_CONFIG_PATH = process.env.MEDIAMTX_CONFIG_PATH || '/etc/mediamtx/mediamtx.yml';
 const MEDIAMTX_SERVICE_NAME = process.env.MEDIAMTX_SERVICE_NAME || 'mediamtx';
-let mediamtxActivePaths = new Set();
+let mediamtxActivePathConfigs = new Map();
 
 function getRtspTimeoutArgs() {
     if (RTSP_USE_STIMEOUT) {
@@ -328,6 +328,8 @@ function buildMediamtxConfigYaml(pathsConfig) {
     lines.push('  all_others: {}');
     for (const [name, cfg] of Object.entries(pathsConfig || {})) {
         lines.push(`  ${name}:`);
+        if (cfg.source) lines.push(`    source: ${JSON.stringify(cfg.source)}`);
+        if (cfg.sourceOnDemand !== undefined) lines.push(`    sourceOnDemand: ${cfg.sourceOnDemand ? 'yes' : 'no'}`);
         if (cfg.runOnInit) lines.push(`    runOnInit: ${JSON.stringify(cfg.runOnInit)}`);
         if (cfg.runOnInitRestart) lines.push('    runOnInitRestart: yes');
         if (typeof cfg.runOnInitStartTimeout === 'string') lines.push(`    runOnInitStartTimeout: ${cfg.runOnInitStartTimeout}`);
@@ -3207,13 +3209,13 @@ app.post('/api/camera/mediamtx/stop', requireAuth, async (req, res) => {
     try {
         if (MEDIAMTX_USE_CONFIG_TRANSCODE) {
             const bodyPath = req.body && req.body.path ? sanitizePathName(req.body.path) : '';
-            const pathName = bodyPath || (mediamtxActivePaths.size ? Array.from(mediamtxActivePaths)[0] : '');
+            const pathName = bodyPath || (mediamtxActivePathConfigs.size ? Array.from(mediamtxActivePathConfigs.keys())[0] : '');
             if (pathName) {
-                mediamtxActivePaths.delete(pathName);
+                mediamtxActivePathConfigs.delete(pathName);
             }
             const pathsConfig = {};
-            for (const p of mediamtxActivePaths) {
-                pathsConfig[p] = {};
+            for (const [p, cfg] of mediamtxActivePathConfigs.entries()) {
+                pathsConfig[p] = cfg || {};
             }
             await applyMediamtxPathsConfig(pathsConfig);
             res.json({ success: true });
@@ -3274,22 +3276,26 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                     return res.status(500).json({ error: 'ffmpeg未启用rkmpp，无法对H265进行硬件转码' });
                 }
             } else {
-                rkLog('info', '检测到H264，将使用MediaMTX配置内runOnDemand直通copy');
+                rkLog('info', '检测到H264，无需转码，将由MediaMTX直接拉源并输出WebRTC');
             }
 
-            const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: sourceCodec === 'h264' ? 'h264' : 'h265' });
+            if (sourceCodec === 'h265') {
+                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265' });
+                mediamtxActivePathConfigs.set(pathName, {
+                    runOnInit: cmd,
+                    runOnInitRestart: true,
+                    runOnInitStartTimeout: '10s'
+                });
+            } else {
+                mediamtxActivePathConfigs.set(pathName, {
+                    source: rtspUrl,
+                    sourceOnDemand: false
+                });
+            }
+
             const pathsConfig = {};
-            mediamtxActivePaths.add(pathName);
-            for (const p of mediamtxActivePaths) {
-                if (p === pathName) {
-                    pathsConfig[p] = {
-                        runOnInit: cmd,
-                        runOnInitRestart: true,
-                        runOnInitStartTimeout: '10s'
-                    };
-                } else {
-                    pathsConfig[p] = {};
-                }
+            for (const [p, cfg] of mediamtxActivePathConfigs.entries()) {
+                pathsConfig[p] = cfg || {};
             }
 
             await applyMediamtxPathsConfig(pathsConfig);
