@@ -8425,6 +8425,7 @@ let radarVisibilityBound = false;
                 };
                 
                 // 创建SDP offer
+                const webrtcStartAt = Date.now();
                 const offer = await rtspPlayer.createOffer();
                 await rtspPlayer.setLocalDescription(offer);
                 addCameraLogToUI('info', 'WebRTC本地Offer已创建');
@@ -8447,22 +8448,39 @@ let radarVisibilityBound = false;
                     });
                 };
 
-                const gathered = await waitIceGatheringComplete(rtspPlayer, 12000);
+                const gathered = await waitIceGatheringComplete(rtspPlayer, 2500);
                 if (!gathered) {
                     addCameraLogToUI('warn', 'ICE候选收集超时，将继续尝试协商');
                 }
+                addCameraLogToUI('info', `ICE候选收集阶段结束，用时${Math.floor((Date.now() - webrtcStartAt) / 10) / 100}s`);
 
-                const whepResponse = await fetch(whepUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/sdp'
-                    },
-                    body: rtspPlayer.localDescription.sdp
-                });
-                if (!whepResponse.ok) {
-                    const errorText = await whepResponse.text();
-                    throw new Error(`WHEP协商失败: ${whepResponse.status} - ${errorText}`);
+                const whepStartAt = Date.now();
+                let whepResponse = null;
+                let lastWhepErrorText = '';
+                while (Date.now() - whepStartAt < 20000) {
+                    whepResponse = await fetch(whepUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/sdp'
+                        },
+                        body: rtspPlayer.localDescription.sdp
+                    });
+
+                    if (whepResponse.ok) break;
+
+                    lastWhepErrorText = await whepResponse.text();
+                    if (whepResponse.status === 404 || whepResponse.status === 409 || whepResponse.status === 503) {
+                        addCameraLogToUI('warn', `WHEP尚未就绪(HTTP ${whepResponse.status})，等待推流中...`);
+                        await new Promise(r => setTimeout(r, 700));
+                        continue;
+                    }
+                    throw new Error(`WHEP协商失败: ${whepResponse.status} - ${lastWhepErrorText}`);
                 }
+
+                if (!whepResponse || !whepResponse.ok) {
+                    throw new Error(`WHEP等待超时(20s): ${lastWhepErrorText || '推流仍未就绪'}`);
+                }
+
                 const answerSdp = await whepResponse.text();
                 await rtspPlayer.setRemoteDescription(new RTCSessionDescription({
                     type: 'answer',
