@@ -232,6 +232,9 @@ const MEDIAMTX_PATH = process.env.MEDIAMTX_PATH || 'camera';
 const MEDIAMTX_RTSP_PORT = parseInt(process.env.MEDIAMTX_RTSP_PORT || '8554', 10);
 const MEDIAMTX_WEBRTC_PORT = parseInt(process.env.MEDIAMTX_WEBRTC_PORT || '8889', 10);
 const MEDIAMTX_RTSP_PUBLISH_URL = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDIAMTX_PATH}`;
+const RTSP_IO_TIMEOUT_US = parseInt(process.env.RTSP_IO_TIMEOUT_US || '5000000', 10);
+const RTSP_PROBE_ANALYZE_FAST = process.env.RTSP_PROBE_ANALYZE_FAST || '2000000';
+const RTSP_PROBE_SIZE_FAST = process.env.RTSP_PROBE_SIZE_FAST || '2000000';
 
 // 摄像头日志相关函数
 // 添加摄像头日志
@@ -412,15 +415,34 @@ async function stopMediamtxPublisher() {
 
 async function waitForMediamtxPublishReady(expectedCodec, timeoutMs = 20000) {
     const start = Date.now();
+    let lastProgressAt = 0;
+    let lastCodec = null;
     while (Date.now() - start < timeoutMs) {
+        if (!mediamtxPublisher) {
+            mtxLog('warn', '等待MediaMTX推流就绪时推流进程不存在');
+            return false;
+        }
+        if (mediamtxPublisher.exitCode !== null && mediamtxPublisher.exitCode !== undefined) {
+            mtxLog('warn', `等待MediaMTX推流就绪时推流进程已退出: exitCode=${mediamtxPublisher.exitCode}`);
+            return false;
+        }
         const codec = await detectRtspVideoCodecSilent(`rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDIAMTX_PATH}`);
+        lastCodec = codec;
         if (codec === expectedCodec) {
             mtxLog('info', `MediaMTX推流已就绪: codec=${codec}`);
             return true;
         }
+        const elapsed = Date.now() - start;
+        if (elapsed - lastProgressAt >= 2000) {
+            mtxLog('info', `等待MediaMTX推流就绪中... 已耗时${Math.floor(elapsed / 1000)}s，当前检测codec=${codec || '未知'}`);
+            lastProgressAt = elapsed;
+        }
         await new Promise(r => setTimeout(r, 500));
     }
     mtxLog('warn', `等待MediaMTX推流就绪超时: ${Math.floor(timeoutMs / 1000)}s`);
+    if (!mtxLastFailureReason) {
+        mtxLastFailureReason = `等待MediaMTX推流就绪超时(${Math.floor(timeoutMs / 1000)}s)，当前检测codec=${lastCodec || '未知'}`;
+    }
     return false;
 }
 
@@ -444,6 +466,8 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
             '-hide_banner',
             '-loglevel', 'warning',
             '-rtsp_transport', 'tcp',
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
+            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
             '-probesize', RK_RTSP_PROBE_SIZE
         ];
@@ -680,9 +704,37 @@ async function detectRtspVideoCodec(rtspUrl) {
 
 async function detectRtspVideoInfo(rtspUrl) {
     try {
-        const args = [
+        const ffprobeBin = getFfprobeBinary();
+        const argsFast = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
+            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
+            '-analyzeduration', RTSP_PROBE_ANALYZE_FAST,
+            '-probesize', RTSP_PROBE_SIZE_FAST,
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_name,profile,level,width,height',
+            '-of', 'json',
+            rtspUrl
+        ];
+        try {
+            const resultFast = await ProcessUtils.spawnCommand(ffprobeBin, argsFast, { timeout: 5000 });
+            const rawFast = resultFast.stdout || '';
+            const parsedFast = rawFast ? JSON.parse(rawFast) : {};
+            const streamFast = parsedFast && parsedFast.streams && parsedFast.streams[0] ? parsedFast.streams[0] : {};
+            const codecFast = streamFast && streamFast.codec_name ? String(streamFast.codec_name).toLowerCase() : null;
+            const profileFast = streamFast && streamFast.profile ? String(streamFast.profile) : '';
+            const levelFast = typeof streamFast.level === 'number' ? streamFast.level : null;
+            const widthFast = typeof streamFast.width === 'number' ? streamFast.width : null;
+            const heightFast = typeof streamFast.height === 'number' ? streamFast.height : null;
+            if (codecFast) return { codec: codecFast, profile: profileFast, level: levelFast, width: widthFast, height: heightFast };
+        } catch {}
+
+        const argsSlow = [
+            '-v', 'error',
+            '-rtsp_transport', 'tcp',
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
+            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
             '-probesize', RK_RTSP_PROBE_SIZE,
             '-select_streams', 'v:0',
@@ -690,7 +742,7 @@ async function detectRtspVideoInfo(rtspUrl) {
             '-of', 'json',
             rtspUrl
         ];
-        const result = await ProcessUtils.spawnCommand(getFfprobeBinary(), args, { timeout: 12000 });
+        const result = await ProcessUtils.spawnCommand(ffprobeBin, argsSlow, { timeout: 12000 });
         const raw = result.stdout || '';
         const parsed = raw ? JSON.parse(raw) : {};
         const stream = parsed && parsed.streams && parsed.streams[0] ? parsed.streams[0] : {};
@@ -717,14 +769,16 @@ async function detectRtspVideoCodecSilent(rtspUrl) {
         const args = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
-            '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
-            '-probesize', RK_RTSP_PROBE_SIZE,
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
+            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
+            '-analyzeduration', RTSP_PROBE_ANALYZE_FAST,
+            '-probesize', RTSP_PROBE_SIZE_FAST,
             '-select_streams', 'v:0',
             '-show_entries', 'stream=codec_name',
             '-of', 'json',
             rtspUrl
         ];
-        const result = await ProcessUtils.spawnCommand(getFfprobeBinary(), args, { timeout: 8000 });
+        const result = await ProcessUtils.spawnCommand(getFfprobeBinary(), args, { timeout: 2500 });
         const raw = result.stdout || '';
         const parsed = raw ? JSON.parse(raw) : {};
         const codec = parsed && parsed.streams && parsed.streams[0] && parsed.streams[0].codec_name
@@ -2966,6 +3020,8 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             rkLog('info', `检测到H264: profile=${videoInfo.profile || '未知'}, level=${videoInfo.level || '未知'}, 分辨率=${videoInfo.width || '?'}x${videoInfo.height || '?'}`);
         }
 
+        const maxAttempts = Math.max(1, parseInt(process.env.MEDIAMTX_PUBLISH_MAX_ATTEMPTS || '2', 10) || 2);
+
         if (codec === 'hevc' || codec === 'h265') {
             rkLog('info', '检测到H265(HEVC)，将使用ffmpeg-rockchip转码后推送到MediaMTX');
             if (!isRockchipRkmppAvailable()) {
@@ -2975,20 +3031,39 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             if (!hasRkmpp) {
                 return res.status(500).json({ error: 'ffmpeg未启用rkmpp，无法对H265进行硬件转码' });
             }
-            const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'transcode_h265_to_h264' });
+
+            let started = false;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                mtxLog('info', `启动推流尝试 ${attempt}/${maxAttempts}`);
+                started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'transcode_h265_to_h264' });
+                if (started) break;
+                await new Promise(r => setTimeout(r, 1200));
+            }
             if (!started) {
                 return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: true });
             }
         } else if (codec === 'h264') {
             const forceTranscode = String(process.env.MEDIAMTX_FORCE_TRANSCODE_H264 || '') === '1';
             const webrtcFriendly = isH264WebrtcFriendly(videoInfo.profile);
-            const mode = (forceTranscode || !webrtcFriendly) ? 'transcode_h264_to_h264' : 'copy';
+            const preferredMode = (forceTranscode || !webrtcFriendly) ? 'transcode_h264_to_h264' : 'copy';
+            let mode = preferredMode;
             if (mode === 'transcode_h264_to_h264') {
                 rkLog('info', `H264将重编码后推送到MediaMTX（原因: ${forceTranscode ? '强制转码' : `profile不兼容(${videoInfo.profile || '未知'})`}）`);
             } else {
                 rkLog('info', 'H264将直通copy推送到MediaMTX');
             }
-            const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode });
+
+            let started = false;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                mtxLog('info', `启动推流尝试 ${attempt}/${maxAttempts}（mode=${mode}）`);
+                started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode });
+                if (started) break;
+                if (attempt === 1 && mode === 'copy') {
+                    mode = 'transcode_h264_to_h264';
+                    rkLog('warn', 'H264直通copy推流失败，将自动切换为重编码再试');
+                }
+                await new Promise(r => setTimeout(r, 1200));
+            }
             if (!started) {
                 return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: false });
             }
