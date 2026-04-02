@@ -450,6 +450,11 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
 
         let args = [];
         let expectedCodec = 'h264';
+        const encoderTuningArgs = [
+            '-g', '50',
+            '-bf', '0',
+            '-force_key_frames', 'expr:gte(t,n_forced*2)'
+        ];
 
         if (mode === 'transcode_h265_to_h264') {
             expectedCodec = 'h264';
@@ -460,11 +465,46 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
                 '-an',
                 '-pix_fmt', 'nv12',
                 '-c:v', 'h264_rkmpp',
+                ...encoderTuningArgs,
                 '-f', 'rtsp',
                 '-rtsp_transport', 'tcp',
                 MEDIAMTX_RTSP_PUBLISH_URL
             ];
             mtxLog('info', `启动推流(转码HEVC→H264)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+        } else if (mode === 'transcode_h264_to_h264') {
+            expectedCodec = 'h264';
+            if (isRockchipRkmppAvailable() && await checkFfmpegRkmppSupport()) {
+                args = [
+                    ...baseArgs,
+                    '-c:v', 'h264_rkmpp',
+                    '-i', inputRtsp,
+                    '-an',
+                    '-pix_fmt', 'nv12',
+                    '-c:v', 'h264_rkmpp',
+                    ...encoderTuningArgs,
+                    '-f', 'rtsp',
+                    '-rtsp_transport', 'tcp',
+                    MEDIAMTX_RTSP_PUBLISH_URL
+                ];
+                mtxLog('info', `启动推流(H264重编码)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+            } else {
+                args = [
+                    ...baseArgs,
+                    '-i', inputRtsp,
+                    '-an',
+                    '-c:v', 'libx264',
+                    '-preset', 'veryfast',
+                    '-tune', 'zerolatency',
+                    '-profile:v', 'baseline',
+                    '-level', '3.1',
+                    '-pix_fmt', 'yuv420p',
+                    ...encoderTuningArgs,
+                    '-f', 'rtsp',
+                    '-rtsp_transport', 'tcp',
+                    MEDIAMTX_RTSP_PUBLISH_URL
+                ];
+                mtxLog('info', `启动推流(H264重编码, libx264)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+            }
         } else {
             expectedCodec = 'h264';
             args = [
@@ -636,6 +676,40 @@ async function detectRtspVideoCodec(rtspUrl) {
         rkLog('warn', `检测视频编码失败(将不启用硬件转码): ${e.message}`);
         return null;
     }
+}
+
+async function detectRtspVideoInfo(rtspUrl) {
+    try {
+        const args = [
+            '-v', 'error',
+            '-rtsp_transport', 'tcp',
+            '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
+            '-probesize', RK_RTSP_PROBE_SIZE,
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_name,profile,level,width,height',
+            '-of', 'json',
+            rtspUrl
+        ];
+        const result = await ProcessUtils.spawnCommand(getFfprobeBinary(), args, { timeout: 12000 });
+        const raw = result.stdout || '';
+        const parsed = raw ? JSON.parse(raw) : {};
+        const stream = parsed && parsed.streams && parsed.streams[0] ? parsed.streams[0] : {};
+        const codec = stream && stream.codec_name ? String(stream.codec_name).toLowerCase() : null;
+        const profile = stream && stream.profile ? String(stream.profile) : '';
+        const level = typeof stream.level === 'number' ? stream.level : null;
+        const width = typeof stream.width === 'number' ? stream.width : null;
+        const height = typeof stream.height === 'number' ? stream.height : null;
+        return { codec, profile, level, width, height };
+    } catch (e) {
+        return { codec: null, profile: '', level: null, width: null, height: null };
+    }
+}
+
+function isH264WebrtcFriendly(profileText) {
+    const t = String(profileText || '').toLowerCase();
+    if (!t) return false;
+    if (t.includes('baseline')) return true;
+    return false;
 }
 
 async function detectRtspVideoCodecSilent(rtspUrl) {
@@ -2883,9 +2957,13 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
 
         addCameraLog('info', `开始使用MediaMTX推流，输入RTSP: ${maskRtspUrl(rtspUrl)}`);
 
-        const codec = await detectRtspVideoCodec(rtspUrl);
+        const videoInfo = await detectRtspVideoInfo(rtspUrl);
+        const codec = videoInfo.codec || await detectRtspVideoCodec(rtspUrl);
         if (!codec) {
             return res.status(500).json({ error: '无法识别摄像头视频编码' });
+        }
+        if (codec === 'h264') {
+            rkLog('info', `检测到H264: profile=${videoInfo.profile || '未知'}, level=${videoInfo.level || '未知'}, 分辨率=${videoInfo.width || '?'}x${videoInfo.height || '?'}`);
         }
 
         if (codec === 'hevc' || codec === 'h265') {
@@ -2902,7 +2980,15 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                 return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: true });
             }
         } else if (codec === 'h264') {
-            const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'copy' });
+            const forceTranscode = String(process.env.MEDIAMTX_FORCE_TRANSCODE_H264 || '') === '1';
+            const webrtcFriendly = isH264WebrtcFriendly(videoInfo.profile);
+            const mode = (forceTranscode || !webrtcFriendly) ? 'transcode_h264_to_h264' : 'copy';
+            if (mode === 'transcode_h264_to_h264') {
+                rkLog('info', `H264将重编码后推送到MediaMTX（原因: ${forceTranscode ? '强制转码' : `profile不兼容(${videoInfo.profile || '未知'})`}）`);
+            } else {
+                rkLog('info', 'H264将直通copy推送到MediaMTX');
+            }
+            const started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode });
             if (!started) {
                 return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: false });
             }

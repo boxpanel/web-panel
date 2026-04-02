@@ -8370,12 +8370,31 @@ let radarVisibilityBound = false;
                 rtspPlayer.ontrack = function(event) {
                     console.log('收到远程视频流');
                     addCameraLogToUI('info', `收到远程媒体轨道: ${event.track ? event.track.kind : 'unknown'}`);
-                    videoElement.srcObject = event.streams[0];
+                    const remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+                    videoElement.srcObject = remoteStream;
                     videoElement.play().catch(() => {});
                 };
 
-                videoElement.addEventListener('loadeddata', () => addCameraLogToUI('info', '视频事件: loadeddata'));
-                videoElement.addEventListener('playing', () => addCameraLogToUI('info', '视频事件: playing'));
+                let firstFrameReceived = false;
+                let firstFrameTimeout = null;
+                const markFirstFrame = (reason) => {
+                    if (firstFrameReceived) return;
+                    firstFrameReceived = true;
+                    if (firstFrameTimeout) {
+                        clearTimeout(firstFrameTimeout);
+                        firstFrameTimeout = null;
+                    }
+                    addCameraLogToUI('info', `已收到视频帧(${reason})`);
+                };
+
+                videoElement.addEventListener('loadeddata', () => {
+                    addCameraLogToUI('info', '视频事件: loadeddata');
+                    markFirstFrame('loadeddata');
+                });
+                videoElement.addEventListener('playing', () => {
+                    addCameraLogToUI('info', '视频事件: playing');
+                    markFirstFrame('playing');
+                });
                 videoElement.addEventListener('stalled', () => addCameraLogToUI('warn', '视频事件: stalled'));
                 videoElement.addEventListener('error', () => addCameraLogToUI('error', '视频事件: error'));
                 
@@ -8443,18 +8462,17 @@ let radarVisibilityBound = false;
                 addCameraLogToUI('info', 'WHEP远端Answer已设置');
 
                 const startWaitAt = Date.now();
-                const waitForFirstFrame = async () => {
-                    while (Date.now() - startWaitAt < 20000) {
-                        if (videoElement.readyState >= 2 && videoElement.currentTime > 0) {
-                            addCameraLogToUI('info', '已收到视频帧');
-                            return true;
-                        }
-                        await new Promise(r => setTimeout(r, 500));
-                    }
-                    addCameraLogToUI('warn', `20秒未收到视频帧（readyState=${videoElement.readyState}，currentTime=${videoElement.currentTime.toFixed(3)}，ICE=${rtspPlayer.iceConnectionState}，conn=${rtspPlayer.connectionState}）`);
-                    return false;
-                };
-                waitForFirstFrame();
+                firstFrameTimeout = setTimeout(() => {
+                    const hasAnyProgress = firstFrameReceived ||
+                        (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) ||
+                        (videoElement.readyState >= 2) ||
+                        (videoElement.currentTime > 0);
+                    if (hasAnyProgress) return;
+                    addCameraLogToUI(
+                        'warn',
+                        `超过20秒尚未开始播放（readyState=${videoElement.readyState}，currentTime=${videoElement.currentTime.toFixed(3)}，video=${videoElement.videoWidth}x${videoElement.videoHeight}，ICE=${rtspPlayer.iceConnectionState}，conn=${rtspPlayer.connectionState}），将继续等待...`
+                    );
+                }, 20000);
                 
                 // 更新按钮状态
                 document.getElementById('start-camera').style.display = 'none';
