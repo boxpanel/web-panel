@@ -8479,6 +8479,9 @@ let radarVisibilityBound = false;
                 let offerSdp = rtspPlayer.localDescription ? rtspPlayer.localDescription.sdp : '';
                 while (Date.now() - whepStartAt < 20000) {
                     try {
+                        if (!rtspPlayer) {
+                            throw new Error('RTCPeerConnection已释放');
+                        }
                         if (!rtspPlayer.localDescription || !offerSdp) {
                             addCameraLogToUI('warn', 'WHEP重试前重建本地Offer');
                             const newOffer = await rtspPlayer.createOffer();

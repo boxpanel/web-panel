@@ -465,7 +465,24 @@ async function applyMediamtxPathsConfig(pathsConfig) {
     if (!restart.ok) {
         throw new Error(`重启MediaMTX失败: ${restart.stderr || restart.stdout || restart.code}`);
     }
-    await new Promise(r => setTimeout(r, 900));
+    const waitForPort = async (port, name) => {
+        const start = Date.now();
+        while (Date.now() - start < 6000) {
+            const ok = await checkTcpConnect('127.0.0.1', port, 600);
+            if (ok) return true;
+            await new Promise(r => setTimeout(r, 300));
+        }
+        return false;
+    };
+
+    await new Promise(r => setTimeout(r, 800));
+    const webrtcOk = await waitForPort(MEDIAMTX_WEBRTC_PORT, 'webrtc');
+    if (!webrtcOk) {
+        throw new Error(`MediaMTX重启后WebRTC端口未就绪(${MEDIAMTX_WEBRTC_PORT})`);
+    }
+    if (MEDIAMTX_ENABLE_API) {
+        await waitForPort(MEDIAMTX_API_PORT, 'api');
+    }
 }
 
 // 摄像头日志相关函数
