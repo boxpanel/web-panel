@@ -3355,7 +3355,6 @@ app.post('/api/camera/mediamtx/stop', requireAuth, async (req, res) => {
             const pathName = bodyPath || (mediamtxActivePathConfigs.size ? Array.from(mediamtxActivePathConfigs.keys())[0] : '');
             if (pathName) {
                 mediamtxActivePathConfigs.delete(pathName);
-                mediamtxActivePathConfigs.delete(`${pathName}_src`);
             }
             const pathsConfig = {};
             for (const [p, cfg] of mediamtxActivePathConfigs.entries()) {
@@ -3424,17 +3423,12 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
 
             if (sourceCodec === 'h265') {
-                const sourcePathName = `${pathName}_src`;
-                const localSourceRtsp = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${sourcePathName}`;
-                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: localSourceRtsp, codec: 'h265' });
-                mediamtxActivePathConfigs.set(sourcePathName, {
-                    source: rtspUrl,
-                    sourceOnDemand: false,
-                    runOnReady: cmd,
-                    runOnReadyRestart: true,
-                    runOnReadyStartTimeout: '10s'
+                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265' });
+                mediamtxActivePathConfigs.set(pathName, {
+                    runOnInit: cmd,
+                    runOnInitRestart: true,
+                    runOnInitStartTimeout: '10s'
                 });
-                mediamtxActivePathConfigs.set(pathName, {});
             } else {
                 mediamtxActivePathConfigs.set(pathName, {
                     source: rtspUrl,
@@ -3448,15 +3442,11 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
 
             await applyMediamtxPathsConfig(pathsConfig);
-            addCameraLog('info', `MediaMTX配置已更新并重启: path=${pathName}${sourceCodec === 'h265' ? `, sourcePath=${pathName}_src` : ''}`);
+            addCameraLog('info', `MediaMTX配置已更新并重启: path=${pathName}`);
             const check = await fetchMediamtxPathsList();
             if (check.ok) {
                 const items = check.data && Array.isArray(check.data.items) ? check.data.items : [];
                 const main = items.find((it) => it && it.name === pathName);
-                const src = sourceCodec === 'h265' ? items.find((it) => it && it.name === `${pathName}_src`) : null;
-                if (src) {
-                    addCameraLog('info', `MediaMTX源路径状态: ${src.name} ready=${Boolean(src.ready)} readers=${Array.isArray(src.readers) ? src.readers.length : 0} source=${src.source || ''}`);
-                }
                 if (main) {
                     addCameraLog('info', `MediaMTX输出路径状态: ${main.name} ready=${Boolean(main.ready)} readers=${Array.isArray(main.readers) ? main.readers.length : 0}`);
                 } else {
