@@ -506,6 +506,7 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
             const started = await tryStartMediamtxLocal();
             const recheck = await getMediamtxAvailability();
             if (!started || !recheck.rtspOk) {
+                mtxLog('error', `MediaMTX不可用: ${mtxLastFailureReason || '未知原因'}`);
                 mtxLastFailureReason = `MediaMTX未运行或RTSP端口不可用(${MEDIAMTX_RTSP_PORT})`;
                 throw new Error(mtxLastFailureReason);
             }
@@ -623,10 +624,10 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
         return true;
     } catch (e) {
         const tail = mtxLastStderrLines.length ? mtxLastStderrLines.slice(-8).join(' | ') : '';
-        mtxLastFailureReason = e && e.message ? String(e.message) : '启动MediaMTX推流失败';
-        if (tail) {
-            mtxLastFailureReason = `${mtxLastFailureReason}。最近日志: ${tail}`;
-        }
+        const baseMsg = e && e.message ? String(e.message) : '启动MediaMTX推流失败';
+        const prev = mtxLastFailureReason ? ` | 前置原因: ${mtxLastFailureReason}` : '';
+        mtxLastFailureReason = `${baseMsg}${prev}`;
+        if (tail) mtxLastFailureReason = `${mtxLastFailureReason}。最近日志: ${tail}`;
         mtxLog('error', `启动MediaMTX推流失败: ${mtxLastFailureReason}`);
         await stopMediamtxPublisher();
         return false;
