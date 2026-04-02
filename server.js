@@ -359,9 +359,12 @@ async function fetchMediamtxPathsList() {
     try {
         const base = `http://127.0.0.1:${MEDIAMTX_API_PORT}`;
         const endpoints = [
-            `${base}/v1/paths/list`,
-            `${base}/v2/paths/list`
+            `${base}/v3/paths/list`,
+            `${base}/v3/config/paths/list`,
+            `${base}/v2/paths/list`,
+            `${base}/v1/paths/list`
         ];
+        let lastHttpError = '';
         for (const url of endpoints) {
             try {
                 const controller = new AbortController();
@@ -374,6 +377,7 @@ async function fetchMediamtxPathsList() {
                 }
                 const text = await resp.text();
                 if (resp.status === 404) {
+                    lastHttpError = `HTTP 404: ${text}`;
                     continue;
                 }
                 return { ok: false, error: `HTTP ${resp.status}: ${text}` };
@@ -381,7 +385,7 @@ async function fetchMediamtxPathsList() {
                 continue;
             }
         }
-        return { ok: false, error: 'fetch failed' };
+        return { ok: false, error: lastHttpError || 'fetch failed' };
     } catch (e) {
         return { ok: false, error: e && e.message ? String(e.message) : 'unknown' };
     }
