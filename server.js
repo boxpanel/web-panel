@@ -239,8 +239,8 @@ const RTSP_PROBE_SIZE_FAST = process.env.RTSP_PROBE_SIZE_FAST || '2000000';
 const MEDIAMTX_ANALYZE_DURATION = process.env.MEDIAMTX_ANALYZE_DURATION || '2000000';
 const MEDIAMTX_PROBE_SIZE = process.env.MEDIAMTX_PROBE_SIZE || '2000000';
 const MEDIAMTX_PUBLISH_READY_TIMEOUT_MS = parseInt(process.env.MEDIAMTX_PUBLISH_READY_TIMEOUT_MS || '8000', 10);
-const MEDIAMTX_MAX_WIDTH = parseInt(process.env.MEDIAMTX_MAX_WIDTH || '1920', 10);
-const MEDIAMTX_MAX_HEIGHT = parseInt(process.env.MEDIAMTX_MAX_HEIGHT || '1080', 10);
+const MEDIAMTX_MAX_WIDTH = parseInt(process.env.MEDIAMTX_MAX_WIDTH || '3840', 10);
+const MEDIAMTX_MAX_HEIGHT = parseInt(process.env.MEDIAMTX_MAX_HEIGHT || '2160', 10);
 
 function getRtspTimeoutArgs() {
     if (os.platform() === 'linux') {
