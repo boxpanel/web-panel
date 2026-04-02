@@ -352,10 +352,8 @@ function buildMediamtxConfigYaml(pathsConfig) {
         if (cfg.sourceOnDemand !== undefined) lines.push(`    sourceOnDemand: ${cfg.sourceOnDemand ? 'yes' : 'no'}`);
         if (cfg.runOnInit) lines.push(`    runOnInit: ${JSON.stringify(cfg.runOnInit)}`);
         if (cfg.runOnInitRestart) lines.push('    runOnInitRestart: yes');
-        if (typeof cfg.runOnInitStartTimeout === 'string') lines.push(`    runOnInitStartTimeout: ${cfg.runOnInitStartTimeout}`);
         if (cfg.runOnReady) lines.push(`    runOnReady: ${JSON.stringify(cfg.runOnReady)}`);
         if (cfg.runOnReadyRestart) lines.push('    runOnReadyRestart: yes');
-        if (typeof cfg.runOnReadyStartTimeout === 'string') lines.push(`    runOnReadyStartTimeout: ${cfg.runOnReadyStartTimeout}`);
     }
     lines.push('');
     return lines.join('\n');
@@ -3456,7 +3454,6 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                 mediamtxActivePathConfigs.set(pathName, {
                     runOnInit: cmd,
                     runOnInitRestart: true,
-                    runOnInitStartTimeout: '10s'
                 });
             } else {
                 mediamtxActivePathConfigs.set(pathName, {
