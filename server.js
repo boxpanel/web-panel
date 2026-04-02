@@ -234,6 +234,7 @@ const MEDIAMTX_RTSP_PORT = parseInt(process.env.MEDIAMTX_RTSP_PORT || '8554', 10
 const MEDIAMTX_WEBRTC_PORT = parseInt(process.env.MEDIAMTX_WEBRTC_PORT || '8889', 10);
 const MEDIAMTX_API_PORT = parseInt(process.env.MEDIAMTX_API_PORT || '9997', 10);
 const MEDIAMTX_ENABLE_API = os.platform() === 'linux' && String(process.env.MEDIAMTX_ENABLE_API || '1') !== '0';
+const MEDIAMTX_PORT_READY_TIMEOUT_MS = parseInt(process.env.MEDIAMTX_PORT_READY_TIMEOUT_MS || '20000', 10);
 const MEDIAMTX_RTSP_PUBLISH_URL = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDIAMTX_PATH}`;
 const RTSP_IO_TIMEOUT_US = parseInt(process.env.RTSP_IO_TIMEOUT_US || '5000000', 10);
 const RTSP_USE_STIMEOUT = String(process.env.RTSP_USE_STIMEOUT || '') === '1';
@@ -465,6 +466,33 @@ async function restartMediamtxService() {
     });
 }
 
+async function getMediamtxServiceDebugInfo() {
+    const { spawn } = require('child_process');
+    const run = (args) => new Promise((resolve) => {
+        const p = spawn('systemctl', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const out = [];
+        const err = [];
+        p.stdout.on('data', d => out.push(String(d)));
+        p.stderr.on('data', d => err.push(String(d)));
+        p.on('close', (code) => resolve({ code, stdout: out.join(''), stderr: err.join('') }));
+        p.on('error', (e) => resolve({ code: -1, stdout: '', stderr: e.message }));
+    });
+    const status = await run(['status', MEDIAMTX_SERVICE_NAME, '--no-pager', '-l']);
+    const journal = await new Promise((resolve) => {
+        const p = spawn('journalctl', ['-u', MEDIAMTX_SERVICE_NAME, '-n', '60', '--no-pager', '-l'], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const out = [];
+        const err = [];
+        p.stdout.on('data', d => out.push(String(d)));
+        p.stderr.on('data', d => err.push(String(d)));
+        p.on('close', (code) => resolve({ code, stdout: out.join(''), stderr: err.join('') }));
+        p.on('error', (e) => resolve({ code: -1, stdout: '', stderr: e.message }));
+    });
+    return {
+        status: tailText(status.stdout || status.stderr || '', 30),
+        journal: tailText(journal.stdout || journal.stderr || '', 30)
+    };
+}
+
 async function applyMediamtxPathsConfig(pathsConfig) {
     const fs = require('fs');
     const yamlText = buildMediamtxConfigYaml(pathsConfig);
@@ -475,7 +503,7 @@ async function applyMediamtxPathsConfig(pathsConfig) {
     }
     const waitForPort = async (port, name) => {
         const start = Date.now();
-        while (Date.now() - start < 6000) {
+        while (Date.now() - start < MEDIAMTX_PORT_READY_TIMEOUT_MS) {
             const ok = await checkTcpConnect('127.0.0.1', port, 600);
             if (ok) return true;
             await new Promise(r => setTimeout(r, 300));
@@ -486,7 +514,8 @@ async function applyMediamtxPathsConfig(pathsConfig) {
     await new Promise(r => setTimeout(r, 800));
     const webrtcOk = await waitForPort(MEDIAMTX_WEBRTC_PORT, 'webrtc');
     if (!webrtcOk) {
-        throw new Error(`MediaMTX重启后WebRTC端口未就绪(${MEDIAMTX_WEBRTC_PORT})`);
+        const dbg = await getMediamtxServiceDebugInfo();
+        throw new Error(`MediaMTX重启后WebRTC端口未就绪(${MEDIAMTX_WEBRTC_PORT})。status=${dbg.status}。journal=${dbg.journal}`);
     }
     if (MEDIAMTX_ENABLE_API) {
         await waitForPort(MEDIAMTX_API_PORT, 'api');
