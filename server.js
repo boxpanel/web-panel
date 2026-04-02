@@ -228,6 +228,7 @@ let rkLastFailureReason = '';
 let mediamtxPublisher = null;
 let mtxLastFailureReason = '';
 let mtxLastStderrLines = [];
+let mediamtxProcess = null;
 const MEDIAMTX_PATH = process.env.MEDIAMTX_PATH || 'camera';
 const MEDIAMTX_RTSP_PORT = parseInt(process.env.MEDIAMTX_RTSP_PORT || '8554', 10);
 const MEDIAMTX_WEBRTC_PORT = parseInt(process.env.MEDIAMTX_WEBRTC_PORT || '8889', 10);
@@ -390,7 +391,11 @@ async function checkTcpConnect(host, port, timeoutMs = 1500) {
 
 async function getMediamtxAvailability() {
     if (os.platform() !== 'linux') {
-        return { rtspOk: false, webrtcOk: false };
+        const rtspOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 600);
+        const webrtcOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_WEBRTC_PORT, 600);
+        if (!rtspOk) mtxLog('warn', `MediaMTX RTSP端口(${MEDIAMTX_RTSP_PORT})不可用`);
+        if (!webrtcOk) mtxLog('warn', `MediaMTX WebRTC端口(${MEDIAMTX_WEBRTC_PORT})不可用`);
+        return { rtspOk, webrtcOk };
     }
     const rtspOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 1200);
     const webrtcOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_WEBRTC_PORT, 1200);
@@ -399,12 +404,50 @@ async function getMediamtxAvailability() {
     return { rtspOk, webrtcOk };
 }
 
+async function tryStartMediamtxLocal() {
+    try {
+        if (mediamtxProcess && mediamtxProcess.pid) {
+            return true;
+        }
+        const bin = process.env.MEDIAMTX_BIN || 'mediamtx';
+        mtxLog('info', `尝试在本机启动MediaMTX: ${bin}`);
+        const { spawn } = require('child_process');
+        mediamtxProcess = spawn(bin, [], { stdio: ['ignore', 'pipe', 'pipe'] });
+        mediamtxProcess.stdout.on('data', d => {
+            const t = String(d || '').trim();
+            if (t) mtxLog('info', `MediaMTX输出: ${t}`);
+        });
+        mediamtxProcess.stderr.on('data', d => {
+            const t = String(d || '').trim();
+            if (t) mtxLog('warn', `MediaMTX日志: ${t}`);
+        });
+        mediamtxProcess.on('close', code => {
+            mtxLog('warn', `MediaMTX本机进程退出: code=${code}`);
+            mediamtxProcess = null;
+        });
+        const ok = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 3000);
+        if (!ok) {
+            mtxLastFailureReason = `本机启动MediaMTX失败或端口未就绪(${MEDIAMTX_RTSP_PORT})`;
+            return false;
+        }
+        mtxLog('info', '本机MediaMTX已就绪');
+        return true;
+    } catch (e) {
+        mtxLastFailureReason = `无法在本机启动MediaMTX: ${e.message}`;
+        return false;
+    }
+}
+
 async function stopMediamtxPublisher() {
     try {
         if (mediamtxPublisher && mediamtxPublisher.pid) {
             mtxLog('info', '停止MediaMTX推流进程');
             mediamtxPublisher.kill('SIGTERM');
             mediamtxPublisher = null;
+        }
+        if (mediamtxProcess && mediamtxProcess.pid) {
+            try { mediamtxProcess.kill('SIGTERM'); } catch {}
+            mediamtxProcess = null;
         }
         mtxLastStderrLines = [];
         mtxLastFailureReason = '';
@@ -454,8 +497,12 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
 
         const availability = await getMediamtxAvailability();
         if (!availability.rtspOk) {
-            mtxLastFailureReason = `MediaMTX未运行或RTSP端口不可用(${MEDIAMTX_RTSP_PORT})`;
-            throw new Error(mtxLastFailureReason);
+            const started = await tryStartMediamtxLocal();
+            const recheck = await getMediamtxAvailability();
+            if (!started || !recheck.rtspOk) {
+                mtxLastFailureReason = `MediaMTX未运行或RTSP端口不可用(${MEDIAMTX_RTSP_PORT})`;
+                throw new Error(mtxLastFailureReason);
+            }
         }
         if (!availability.webrtcOk) {
             mtxLog('warn', `MediaMTX WebRTC端口(${MEDIAMTX_WEBRTC_PORT})不可用，将无法通过WHEP播放`);
