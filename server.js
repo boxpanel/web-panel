@@ -467,18 +467,13 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
             '-loglevel', 'warning',
             '-rtsp_transport', 'tcp',
             '-stimeout', String(RTSP_IO_TIMEOUT_US),
-            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
             '-probesize', RK_RTSP_PROBE_SIZE
         ];
 
         let args = [];
         let expectedCodec = 'h264';
-        const encoderTuningArgs = [
-            '-g', '50',
-            '-bf', '0',
-            '-force_key_frames', 'expr:gte(t,n_forced*2)'
-        ];
+        const encoderTuningArgs = ['-g', '50', '-bf', '0'];
 
         if (mode === 'transcode_h265_to_h264') {
             expectedCodec = 'h264';
@@ -709,7 +704,6 @@ async function detectRtspVideoInfo(rtspUrl) {
             '-v', 'error',
             '-rtsp_transport', 'tcp',
             '-stimeout', String(RTSP_IO_TIMEOUT_US),
-            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RTSP_PROBE_ANALYZE_FAST,
             '-probesize', RTSP_PROBE_SIZE_FAST,
             '-select_streams', 'v:0',
@@ -734,7 +728,6 @@ async function detectRtspVideoInfo(rtspUrl) {
             '-v', 'error',
             '-rtsp_transport', 'tcp',
             '-stimeout', String(RTSP_IO_TIMEOUT_US),
-            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
             '-probesize', RK_RTSP_PROBE_SIZE,
             '-select_streams', 'v:0',
@@ -770,7 +763,6 @@ async function detectRtspVideoCodecSilent(rtspUrl) {
             '-v', 'error',
             '-rtsp_transport', 'tcp',
             '-stimeout', String(RTSP_IO_TIMEOUT_US),
-            '-rw_timeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RTSP_PROBE_ANALYZE_FAST,
             '-probesize', RTSP_PROBE_SIZE_FAST,
             '-select_streams', 'v:0',
