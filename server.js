@@ -3308,8 +3308,8 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
 
             await applyMediamtxPathsConfig(pathsConfig);
-            const host = req.hostname || 'localhost';
-            const whepUrl = `http://${host}:${MEDIAMTX_WEBRTC_PORT}/${pathName}/whep`;
+            const whepHost = process.env.MEDIAMTX_PUBLIC_HOST || getLocalIpForMediamtx();
+            const whepUrl = `http://${whepHost}:${MEDIAMTX_WEBRTC_PORT}/${pathName}/whep`;
             res.json({ success: true, whepUrl, path: pathName });
             return;
         }
@@ -3381,8 +3381,8 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             return res.status(500).json({ error: `暂不支持的视频编码: ${codec}` });
         }
 
-        const host = req.hostname || 'localhost';
-        const whepUrl = `http://${host}:${MEDIAMTX_WEBRTC_PORT}/${MEDIAMTX_PATH}/whep`;
+        const whepHost = process.env.MEDIAMTX_PUBLIC_HOST || getLocalIpForMediamtx();
+        const whepUrl = `http://${whepHost}:${MEDIAMTX_WEBRTC_PORT}/${MEDIAMTX_PATH}/whep`;
         res.json({ success: true, whepUrl });
     } catch (e) {
         const msg = e && e.message ? e.message : '未知错误';
