@@ -279,7 +279,7 @@ function sanitizePathName(name) {
     return raw.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps }) {
+function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps, opts }) {
     const ffmpegBin = getFfmpegBinary();
     const baseInput = [
         ffmpegBin,
@@ -311,12 +311,13 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps 
     const fpsFilter = (() => {
         const defFps = parseInt(process.env.MEDIAMTX_DEFAULT_FPS || '25', 10);
         const srcFps = (typeof inputFps === 'number' && inputFps > 0) ? Math.round(inputFps) : null;
-        const picked = Math.max(1, Math.min((srcFps || defFps), (MEDIAMTX_MAX_FPS > 0 ? MEDIAMTX_MAX_FPS : (srcFps || defFps))));
+        const capFps = opts && typeof opts.capFps === 'number' && opts.capFps > 0 ? Math.round(opts.capFps) : (MEDIAMTX_MAX_FPS > 0 ? MEDIAMTX_MAX_FPS : (srcFps || defFps));
+        const picked = Math.max(1, Math.min((srcFps || defFps), capFps));
         return `fps=${picked}`;
     })();
 
-    const maxW = MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840;
-    const maxH = MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160;
+    const maxW = opts && typeof opts.maxW === 'number' && opts.maxW > 0 ? opts.maxW : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
+    const maxH = opts && typeof opts.maxH === 'number' && opts.maxH > 0 ? opts.maxH : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
     const scaleToMax = `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
     const scaleEven = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
 
@@ -330,7 +331,7 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps 
         '-c:v', 'h264_rkmpp',
         '-profile:v', 'baseline',
         '-level', '5.1',
-        '-g', '25',
+        '-g', (opts && typeof opts.gop === 'number' && opts.gop > 0 ? String(opts.gop) : '25'),
         '-bf', '0',
         '-bsf:v', 'dump_extra',
         '-f', 'rtsp',
@@ -1182,6 +1183,21 @@ function isH264WebrtcFriendly(profileText) {
     if (!t) return false;
     if (t.includes('baseline')) return true;
     return false;
+}
+
+function deriveTranscodeOptions(videoInfo) {
+    const width = videoInfo && typeof videoInfo.width === 'number' ? videoInfo.width : null;
+    const height = videoInfo && typeof videoInfo.height === 'number' ? videoInfo.height : null;
+    const fps = videoInfo && typeof videoInfo.fps === 'number' ? videoInfo.fps : null;
+
+    const is4k = Boolean(width && height && width >= 3000 && height >= 1600);
+    const capFps = is4k ? 15 : 25;
+    const maxW = is4k ? 1920 : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
+    const maxH = is4k ? 1080 : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
+    const gop = is4k ? 30 : 25;
+
+    rkLog('info', `自动转码参数: 输入=${width || '?'}x${height || '?'}@${fps || '?'}fps → max=${maxW}x${maxH} capFps=${capFps} gop=${gop}`);
+    return { maxW, maxH, capFps, gop };
 }
 
 async function detectRtspVideoCodecSilent(rtspUrl) {
@@ -3489,7 +3505,8 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
 
             if (sourceCodec === 'h265') {
-                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null) });
+                const opts = deriveTranscodeOptions(videoInfo);
+                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null), opts });
                 mediamtxActivePathConfigs.set(pathName, {
                     runOnInit: cmd,
                     runOnInitRestart: true,
