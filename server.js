@@ -390,6 +390,7 @@ async function checkTcpConnect(host, port, timeoutMs = 1500) {
 }
 
 async function getMediamtxAvailability() {
+    mtxLog('info', '检查MediaMTX可用性');
     if (os.platform() !== 'linux') {
         const rtspOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 600);
         const webrtcOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_WEBRTC_PORT, 600);
@@ -537,6 +538,7 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
                 MEDIAMTX_RTSP_PUBLISH_URL
             ];
             mtxLog('info', `启动推流(转码HEVC→H264)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+            mtxLog('info', `ffmpeg命令: ${sanitizeFfmpegText([ffmpegBin, ...args].join(' '))}`);
         } else if (mode === 'transcode_h264_to_h264') {
             expectedCodec = 'h264';
             if (isRockchipRkmppAvailable() && await checkFfmpegRkmppSupport()) {
@@ -553,6 +555,7 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
                     MEDIAMTX_RTSP_PUBLISH_URL
                 ];
                 mtxLog('info', `启动推流(H264重编码)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+                mtxLog('info', `ffmpeg命令: ${sanitizeFfmpegText([ffmpegBin, ...args].join(' '))}`);
             } else {
                 args = [
                     ...baseArgs,
@@ -570,6 +573,7 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
                     MEDIAMTX_RTSP_PUBLISH_URL
                 ];
                 mtxLog('info', `启动推流(H264重编码, libx264)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+                mtxLog('info', `ffmpeg命令: ${sanitizeFfmpegText([ffmpegBin, ...args].join(' '))}`);
             }
         } else {
             expectedCodec = 'h264';
@@ -583,6 +587,7 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
                 MEDIAMTX_RTSP_PUBLISH_URL
             ];
             mtxLog('info', `启动推流(直通copy)到MediaMTX: 输入=${maskRtspUrl(inputRtsp)} 输出=${MEDIAMTX_RTSP_PUBLISH_URL}`);
+            mtxLog('info', `ffmpeg命令: ${sanitizeFfmpegText([ffmpegBin, ...args].join(' '))}`);
         }
 
         const { spawn } = require('child_process');
@@ -746,6 +751,7 @@ async function detectRtspVideoCodec(rtspUrl) {
 
 async function detectRtspVideoInfo(rtspUrl) {
     try {
+        rkLog('info', `开始检测视频信息: ${maskRtspUrl(rtspUrl)}`);
         const ffprobeBin = getFfprobeBinary();
         const argsFast = [
             '-v', 'error',
@@ -768,7 +774,10 @@ async function detectRtspVideoInfo(rtspUrl) {
             const levelFast = typeof streamFast.level === 'number' ? streamFast.level : null;
             const widthFast = typeof streamFast.width === 'number' ? streamFast.width : null;
             const heightFast = typeof streamFast.height === 'number' ? streamFast.height : null;
-            if (codecFast) return { codec: codecFast, profile: profileFast, level: levelFast, width: widthFast, height: heightFast };
+            if (codecFast) {
+                rkLog('info', `快速检测结果: codec=${codecFast}, profile=${profileFast || '未知'}, level=${levelFast || '未知'}, 分辨率=${widthFast || '?'}x${heightFast || '?'}`);
+                return { codec: codecFast, profile: profileFast, level: levelFast, width: widthFast, height: heightFast };
+            }
         } catch {}
 
         const argsSlow = [
@@ -791,8 +800,10 @@ async function detectRtspVideoInfo(rtspUrl) {
         const level = typeof stream.level === 'number' ? stream.level : null;
         const width = typeof stream.width === 'number' ? stream.width : null;
         const height = typeof stream.height === 'number' ? stream.height : null;
+        rkLog('info', `详细检测结果: codec=${codec || '未知'}, profile=${profile || '未知'}, level=${level || '未知'}, 分辨率=${width || '?'}x${height || '?'}`);
         return { codec, profile, level, width, height };
     } catch (e) {
+        rkLog('warn', `检测视频信息失败: ${e.message}`);
         return { codec: null, profile: '', level: null, width: null, height: null };
     }
 }
@@ -3076,10 +3087,12 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                 mtxLog('info', `启动推流尝试 ${attempt}/${maxAttempts}`);
                 started = await launchMediamtxPublisher({ inputRtsp: rtspUrl, mode: 'transcode_h265_to_h264' });
                 if (started) break;
+                mtxLog('warn', '推流尝试失败，准备重试');
                 await new Promise(r => setTimeout(r, 1200));
             }
             if (!started) {
-                return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: true });
+                addCameraLog('error', mtxLastFailureReason || '启动MediaMTX推流失败');
+                return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: true, stderrTail: mtxLastStderrLines.slice(-20) });
             }
         } else if (codec === 'h264') {
             const forceTranscode = String(process.env.MEDIAMTX_FORCE_TRANSCODE_H264 || '') === '1';
@@ -3101,10 +3114,12 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                     mode = 'transcode_h264_to_h264';
                     rkLog('warn', 'H264直通copy推流失败，将自动切换为重编码再试');
                 }
+                mtxLog('warn', '推流尝试失败，准备重试');
                 await new Promise(r => setTimeout(r, 1200));
             }
             if (!started) {
-                return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: false });
+                addCameraLog('error', mtxLastFailureReason || '启动MediaMTX推流失败');
+                return res.status(500).json({ error: mtxLastFailureReason || '启动MediaMTX推流失败', noFallback: false, stderrTail: mtxLastStderrLines.slice(-20) });
             }
         } else {
             return res.status(500).json({ error: `暂不支持的视频编码: ${codec}` });
@@ -3114,7 +3129,9 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
         const whepUrl = `http://${host}:${MEDIAMTX_WEBRTC_PORT}/${MEDIAMTX_PATH}/whep`;
         res.json({ success: true, whepUrl });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        const msg = e && e.message ? e.message : '未知错误';
+        addCameraLog('error', `推流接口异常: ${msg}`);
+        res.status(500).json({ error: msg, details: mtxLastFailureReason || '', stderrTail: mtxLastStderrLines.slice(-20) });
     }
 });
 
