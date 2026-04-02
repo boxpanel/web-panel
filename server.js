@@ -328,10 +328,9 @@ function buildMediamtxConfigYaml(pathsConfig) {
     lines.push('  all_others: {}');
     for (const [name, cfg] of Object.entries(pathsConfig || {})) {
         lines.push(`  ${name}:`);
-        if (cfg.runOnDemand) lines.push(`    runOnDemand: ${JSON.stringify(cfg.runOnDemand)}`);
-        if (cfg.runOnDemandRestart) lines.push('    runOnDemandRestart: yes');
-        if (typeof cfg.runOnDemandCloseAfter === 'string') lines.push(`    runOnDemandCloseAfter: ${cfg.runOnDemandCloseAfter}`);
-        if (typeof cfg.runOnDemandStartTimeout === 'string') lines.push(`    runOnDemandStartTimeout: ${cfg.runOnDemandStartTimeout}`);
+        if (cfg.runOnInit) lines.push(`    runOnInit: ${JSON.stringify(cfg.runOnInit)}`);
+        if (cfg.runOnInitRestart) lines.push('    runOnInitRestart: yes');
+        if (typeof cfg.runOnInitStartTimeout === 'string') lines.push(`    runOnInitStartTimeout: ${cfg.runOnInitStartTimeout}`);
     }
     lines.push('');
     return lines.join('\n');
@@ -3284,10 +3283,9 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             for (const p of mediamtxActivePaths) {
                 if (p === pathName) {
                     pathsConfig[p] = {
-                        runOnDemand: cmd,
-                        runOnDemandRestart: true,
-                        runOnDemandCloseAfter: '5s',
-                        runOnDemandStartTimeout: '10s'
+                        runOnInit: cmd,
+                        runOnInitRestart: true,
+                        runOnInitStartTimeout: '10s'
                     };
                 } else {
                     pathsConfig[p] = {};
