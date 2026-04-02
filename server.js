@@ -357,17 +357,31 @@ async function fetchMediamtxPathsList() {
         return { ok: false, error: 'MediaMTX API未启用' };
     }
     try {
-        const url = `http://127.0.0.1:${MEDIAMTX_API_PORT}/v1/paths/list`;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1200);
-        const resp = await fetch(url, { signal: controller.signal });
-        clearTimeout(timer);
-        if (!resp.ok) {
-            const text = await resp.text();
-            return { ok: false, error: `HTTP ${resp.status}: ${text}` };
+        const base = `http://127.0.0.1:${MEDIAMTX_API_PORT}`;
+        const endpoints = [
+            `${base}/v1/paths/list`,
+            `${base}/v2/paths/list`
+        ];
+        for (const url of endpoints) {
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), 1500);
+                const resp = await fetch(url, { signal: controller.signal });
+                clearTimeout(timer);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    return { ok: true, data };
+                }
+                const text = await resp.text();
+                if (resp.status === 404) {
+                    continue;
+                }
+                return { ok: false, error: `HTTP ${resp.status}: ${text}` };
+            } catch (e) {
+                continue;
+            }
         }
-        const data = await resp.json();
-        return { ok: true, data };
+        return { ok: false, error: 'fetch failed' };
     } catch (e) {
         return { ok: false, error: e && e.message ? String(e.message) : 'unknown' };
     }
