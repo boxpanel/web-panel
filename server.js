@@ -228,7 +228,6 @@ let rkLastFailureReason = '';
 let mediamtxPublisher = null;
 let mtxLastFailureReason = '';
 let mtxLastStderrLines = [];
-let mediamtxProcess = null;
 const MEDIAMTX_PATH = process.env.MEDIAMTX_PATH || 'camera';
 const MEDIAMTX_RTSP_PORT = parseInt(process.env.MEDIAMTX_RTSP_PORT || '8554', 10);
 const MEDIAMTX_WEBRTC_PORT = parseInt(process.env.MEDIAMTX_WEBRTC_PORT || '8889', 10);
@@ -236,13 +235,6 @@ const MEDIAMTX_RTSP_PUBLISH_URL = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDI
 const RTSP_IO_TIMEOUT_US = parseInt(process.env.RTSP_IO_TIMEOUT_US || '5000000', 10);
 const RTSP_PROBE_ANALYZE_FAST = process.env.RTSP_PROBE_ANALYZE_FAST || '2000000';
 const RTSP_PROBE_SIZE_FAST = process.env.RTSP_PROBE_SIZE_FAST || '2000000';
-
-function getRtspTimeoutArgs() {
-    if (os.platform() === 'linux') {
-        return ['-stimeout', String(RTSP_IO_TIMEOUT_US)];
-    }
-    return [];
-}
 
 // 摄像头日志相关函数
 // 添加摄像头日志
@@ -398,73 +390,11 @@ async function checkTcpConnect(host, port, timeoutMs = 1500) {
 
 async function getMediamtxAvailability() {
     mtxLog('info', '检查MediaMTX可用性');
-    if (os.platform() !== 'linux') {
-        const rtspOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 600);
-        const webrtcOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_WEBRTC_PORT, 600);
-        if (!rtspOk) mtxLog('warn', `MediaMTX RTSP端口(${MEDIAMTX_RTSP_PORT})不可用`);
-        if (!webrtcOk) mtxLog('warn', `MediaMTX WebRTC端口(${MEDIAMTX_WEBRTC_PORT})不可用`);
-        return { rtspOk, webrtcOk };
-    }
     const rtspOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 1200);
     const webrtcOk = await checkTcpConnect('127.0.0.1', MEDIAMTX_WEBRTC_PORT, 1200);
     if (!rtspOk) mtxLog('warn', `MediaMTX RTSP端口(${MEDIAMTX_RTSP_PORT})不可用`);
     if (!webrtcOk) mtxLog('warn', `MediaMTX WebRTC端口(${MEDIAMTX_WEBRTC_PORT})不可用`);
     return { rtspOk, webrtcOk };
-}
-
-async function tryStartMediamtxLocal() {
-    try {
-        if (mediamtxProcess && mediamtxProcess.pid) {
-            return true;
-        }
-        const path = require('path');
-        const fs = require('fs');
-
-        const bundledExe = path.join(__dirname, 'mediamtx', 'mediamtx.exe');
-        const bundledBin = path.join(__dirname, 'mediamtx', 'mediamtx');
-        const confPath = path.join(__dirname, 'mediamtx', 'mediamtx.yml');
-        const hasBundledExe = fs.existsSync(bundledExe);
-        const hasBundledBin = fs.existsSync(bundledBin);
-        const hasConf = fs.existsSync(confPath);
-
-        const bin =
-            process.env.MEDIAMTX_BIN ||
-            (hasBundledExe ? bundledExe : '') ||
-            (hasBundledBin ? bundledBin : '') ||
-            'mediamtx';
-
-        const spawnArgs = hasConf ? [confPath] : [];
-        mtxLog('info', `尝试在本机启动MediaMTX: bin=${bin}${hasConf ? ` conf=${confPath}` : ''}`);
-        const { spawn } = require('child_process');
-        mediamtxProcess = spawn(bin, spawnArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-        mediamtxProcess.on('error', (err) => {
-            mtxLastFailureReason = `启动MediaMTX进程失败: ${err.message}`;
-            mtxLog('error', mtxLastFailureReason);
-        });
-        mediamtxProcess.stdout.on('data', d => {
-            const t = String(d || '').trim();
-            if (t) mtxLog('info', `MediaMTX输出: ${t}`);
-        });
-        mediamtxProcess.stderr.on('data', d => {
-            const t = String(d || '').trim();
-            if (t) mtxLog('warn', `MediaMTX日志: ${t}`);
-        });
-        mediamtxProcess.on('close', code => {
-            mtxLog('warn', `MediaMTX本机进程退出: code=${code}`);
-            mediamtxProcess = null;
-        });
-        const ok = await checkTcpConnect('127.0.0.1', MEDIAMTX_RTSP_PORT, 3000);
-        if (!ok) {
-            mtxLastFailureReason = `本机启动MediaMTX失败或端口未就绪(${MEDIAMTX_RTSP_PORT})`;
-            return false;
-        }
-        mtxLog('info', '本机MediaMTX已就绪');
-        return true;
-    } catch (e) {
-        mtxLastFailureReason = `无法在本机启动MediaMTX: ${e.message}`;
-        mtxLog('error', mtxLastFailureReason);
-        return false;
-    }
 }
 
 async function stopMediamtxPublisher(options = {}) {
@@ -476,10 +406,6 @@ async function stopMediamtxPublisher(options = {}) {
             mtxLog('info', '停止MediaMTX推流进程');
             mediamtxPublisher.kill('SIGTERM');
             mediamtxPublisher = null;
-        }
-        if (mediamtxProcess && mediamtxProcess.pid) {
-            try { mediamtxProcess.kill('SIGTERM'); } catch {}
-            mediamtxProcess = null;
         }
         if (clearStderrLines) mtxLastStderrLines = [];
         if (clearFailureReason) mtxLastFailureReason = '';
@@ -529,13 +455,8 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
 
         const availability = await getMediamtxAvailability();
         if (!availability.rtspOk) {
-            const started = await tryStartMediamtxLocal();
-            const recheck = await getMediamtxAvailability();
-            if (!started || !recheck.rtspOk) {
-                mtxLog('error', `MediaMTX不可用: ${mtxLastFailureReason || '未知原因'}`);
-                mtxLastFailureReason = `MediaMTX未运行或RTSP端口不可用(${MEDIAMTX_RTSP_PORT})`;
-                throw new Error(mtxLastFailureReason);
-            }
+            mtxLastFailureReason = `MediaMTX未运行或RTSP端口不可用(${MEDIAMTX_RTSP_PORT})`;
+            throw new Error(mtxLastFailureReason);
         }
         if (!availability.webrtcOk) {
             mtxLog('warn', `MediaMTX WebRTC端口(${MEDIAMTX_WEBRTC_PORT})不可用，将无法通过WHEP播放`);
@@ -546,7 +467,7 @@ async function launchMediamtxPublisher({ inputRtsp, mode }) {
             '-hide_banner',
             '-loglevel', 'warning',
             '-rtsp_transport', 'tcp',
-            ...getRtspTimeoutArgs(),
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
             '-probesize', RK_RTSP_PROBE_SIZE
         ];
@@ -788,7 +709,7 @@ async function detectRtspVideoInfo(rtspUrl) {
         const argsFast = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
-            ...getRtspTimeoutArgs(),
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RTSP_PROBE_ANALYZE_FAST,
             '-probesize', RTSP_PROBE_SIZE_FAST,
             '-select_streams', 'v:0',
@@ -815,7 +736,7 @@ async function detectRtspVideoInfo(rtspUrl) {
         const argsSlow = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
-            ...getRtspTimeoutArgs(),
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RK_RTSP_ANALYZE_DURATION,
             '-probesize', RK_RTSP_PROBE_SIZE,
             '-select_streams', 'v:0',
@@ -852,7 +773,7 @@ async function detectRtspVideoCodecSilent(rtspUrl) {
         const args = [
             '-v', 'error',
             '-rtsp_transport', 'tcp',
-            ...getRtspTimeoutArgs(),
+            '-stimeout', String(RTSP_IO_TIMEOUT_US),
             '-analyzeduration', RTSP_PROBE_ANALYZE_FAST,
             '-probesize', RTSP_PROBE_SIZE_FAST,
             '-select_streams', 'v:0',
