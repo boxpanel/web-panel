@@ -232,6 +232,8 @@ let mediamtxProcess = null;
 const MEDIAMTX_PATH = process.env.MEDIAMTX_PATH || 'camera';
 const MEDIAMTX_RTSP_PORT = parseInt(process.env.MEDIAMTX_RTSP_PORT || '8554', 10);
 const MEDIAMTX_WEBRTC_PORT = parseInt(process.env.MEDIAMTX_WEBRTC_PORT || '8889', 10);
+const MEDIAMTX_API_PORT = parseInt(process.env.MEDIAMTX_API_PORT || '9997', 10);
+const MEDIAMTX_ENABLE_API = os.platform() === 'linux' && String(process.env.MEDIAMTX_ENABLE_API || '1') !== '0';
 const MEDIAMTX_RTSP_PUBLISH_URL = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${MEDIAMTX_PATH}`;
 const RTSP_IO_TIMEOUT_US = parseInt(process.env.RTSP_IO_TIMEOUT_US || '5000000', 10);
 const RTSP_USE_STIMEOUT = String(process.env.RTSP_USE_STIMEOUT || '') === '1';
@@ -327,6 +329,11 @@ function buildMediamtxConfigYaml(pathsConfig) {
     lines.push(`webrtcAddress: :${MEDIAMTX_WEBRTC_PORT}`);
     lines.push("webrtcAllowOrigin: '*'");
     lines.push(`webrtcAdditionalHosts: ['${localIp}']`);
+    if (MEDIAMTX_ENABLE_API) {
+        lines.push('');
+        lines.push('api: yes');
+        lines.push(`apiAddress: :${MEDIAMTX_API_PORT}`);
+    }
     lines.push('');
     lines.push('paths:');
     lines.push('  all_others: {}');
@@ -343,6 +350,27 @@ function buildMediamtxConfigYaml(pathsConfig) {
     }
     lines.push('');
     return lines.join('\n');
+}
+
+async function fetchMediamtxPathsList() {
+    if (!MEDIAMTX_ENABLE_API) {
+        return { ok: false, error: 'MediaMTX API未启用' };
+    }
+    try {
+        const url = `http://127.0.0.1:${MEDIAMTX_API_PORT}/v1/paths/list`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1200);
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!resp.ok) {
+            const text = await resp.text();
+            return { ok: false, error: `HTTP ${resp.status}: ${text}` };
+        }
+        const data = await resp.json();
+        return { ok: true, data };
+    } catch (e) {
+        return { ok: false, error: e && e.message ? String(e.message) : 'unknown' };
+    }
 }
 
 async function restartMediamtxService() {
@@ -3212,6 +3240,22 @@ app.get('/api/camera/mediamtx/status', requireAuth, async (req, res) => {
     }
 });
 
+app.get('/api/camera/mediamtx/paths', requireAuth, async (req, res) => {
+    try {
+        const pathName = req.query && typeof req.query.path === 'string' ? sanitizePathName(req.query.path) : '';
+        const result = await fetchMediamtxPathsList();
+        if (!result.ok) {
+            res.status(502).json({ success: false, error: result.error });
+            return;
+        }
+        const items = result.data && Array.isArray(result.data.items) ? result.data.items : [];
+        const filtered = pathName ? items.filter((it) => it && it.name === pathName) : items;
+        res.json({ success: true, items: filtered });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e && e.message ? e.message : '未知错误' });
+    }
+});
+
 app.post('/api/camera/mediamtx/stop', requireAuth, async (req, res) => {
     try {
         if (MEDIAMTX_USE_CONFIG_TRANSCODE) {
@@ -3312,6 +3356,23 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
 
             await applyMediamtxPathsConfig(pathsConfig);
+            addCameraLog('info', `MediaMTX配置已更新并重启: path=${pathName}${sourceCodec === 'h265' ? `, sourcePath=${pathName}_src` : ''}`);
+            const check = await fetchMediamtxPathsList();
+            if (check.ok) {
+                const items = check.data && Array.isArray(check.data.items) ? check.data.items : [];
+                const main = items.find((it) => it && it.name === pathName);
+                const src = sourceCodec === 'h265' ? items.find((it) => it && it.name === `${pathName}_src`) : null;
+                if (src) {
+                    addCameraLog('info', `MediaMTX源路径状态: ${src.name} ready=${Boolean(src.ready)} readers=${Array.isArray(src.readers) ? src.readers.length : 0} source=${src.source || ''}`);
+                }
+                if (main) {
+                    addCameraLog('info', `MediaMTX输出路径状态: ${main.name} ready=${Boolean(main.ready)} readers=${Array.isArray(main.readers) ? main.readers.length : 0}`);
+                } else {
+                    addCameraLog('warn', `MediaMTX未找到输出路径: ${pathName}`);
+                }
+            } else {
+                addCameraLog('warn', `无法读取MediaMTX API路径状态: ${check.error}`);
+            }
             const whepHost = process.env.MEDIAMTX_PUBLIC_HOST || getLocalIpForMediamtx();
             const whepUrl = `http://${whepHost}:${MEDIAMTX_WEBRTC_PORT}/${pathName}/whep`;
             res.json({ success: true, whepUrl, path: pathName });

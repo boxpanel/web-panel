@@ -8265,6 +8265,25 @@ let radarVisibilityBound = false;
                 const mtxData = await mtxResponse.json();
                 const whepUrl = mtxData.whepUrl;
                 addCameraLogToUI('info', `将通过MediaMTX WebRTC播放: ${whepUrl}`);
+                if (mtxData.path) {
+                    try {
+                        const pathsResp = await fetch(`/api/camera/mediamtx/paths?path=${encodeURIComponent(mtxData.path)}`);
+                        if (pathsResp.ok) {
+                            const pathsData = await pathsResp.json();
+                            const item = pathsData && Array.isArray(pathsData.items) ? pathsData.items[0] : null;
+                            if (item) {
+                                addCameraLogToUI('info', `MediaMTX路径状态: ${item.name} ready=${Boolean(item.ready)} readers=${Array.isArray(item.readers) ? item.readers.length : 0}`);
+                            } else {
+                                addCameraLogToUI('warn', `MediaMTX未找到路径: ${mtxData.path}`);
+                            }
+                        } else {
+                            const txt = await pathsResp.text();
+                            addCameraLogToUI('warn', `读取MediaMTX路径状态失败: HTTP ${pathsResp.status} ${txt || ''}`.trim());
+                        }
+                    } catch (e) {
+                        addCameraLogToUI('warn', `读取MediaMTX路径状态异常: ${e && e.message ? e.message : 'unknown'}`);
+                    }
+                }
                 
                 // 在创建新的video元素前，先清理已存在的webrtc-video元素，防止重复创建
                 const container = document.getElementById('camera-container');

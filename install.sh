@@ -925,6 +925,8 @@ webrtc: yes
 webrtcAddress: :8889
 webrtcAllowOrigin: '*'
 webrtcAdditionalHosts: ['$LOCAL_IP']
+api: yes
+apiAddress: :9997
 paths:
   all_others: {}
   camera: {}
