@@ -8476,14 +8476,22 @@ let radarVisibilityBound = false;
                 const whepStartAt = Date.now();
                 let whepResponse = null;
                 let lastWhepErrorText = '';
+                let offerSdp = rtspPlayer.localDescription ? rtspPlayer.localDescription.sdp : '';
                 while (Date.now() - whepStartAt < 20000) {
                     try {
+                        if (!rtspPlayer.localDescription || !offerSdp) {
+                            addCameraLogToUI('warn', 'WHEP重试前重建本地Offer');
+                            const newOffer = await rtspPlayer.createOffer();
+                            await rtspPlayer.setLocalDescription(newOffer);
+                            offerSdp = rtspPlayer.localDescription ? rtspPlayer.localDescription.sdp : '';
+                            addCameraLogToUI('info', 'WebRTC本地Offer已重建');
+                        }
                         whepResponse = await fetch(whepUrl, {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/sdp'
                             },
-                            body: rtspPlayer.localDescription.sdp
+                            body: offerSdp
                         });
                     } catch (e) {
                         const msg = e && e.message ? String(e.message) : '';

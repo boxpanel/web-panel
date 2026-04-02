@@ -385,10 +385,59 @@ async function fetchMediamtxPathsList() {
                 continue;
             }
         }
-        return { ok: false, error: lastHttpError || 'fetch failed' };
+        // 尝试HTTP模块回退
+        const fallback = await httpGetJson(`${base}/v3/paths/list`, 1500);
+        if (fallback && fallback.ok) {
+            return { ok: true, data: fallback.data };
+        }
+        return { ok: false, error: lastHttpError || (fallback && fallback.error) || 'fetch failed' };
     } catch (e) {
         return { ok: false, error: e && e.message ? String(e.message) : 'unknown' };
     }
+}
+
+function httpGetJson(url, timeoutMs = 1500) {
+    return new Promise((resolve) => {
+        try {
+            const u = new URL(url);
+            const mod = u.protocol === 'https:' ? require('https') : require('http');
+            const req = mod.request(
+                {
+                    hostname: u.hostname,
+                    port: u.port,
+                    path: u.pathname + (u.search || ''),
+                    method: 'GET',
+                    timeout: timeoutMs,
+                    headers: { Accept: 'application/json' }
+                },
+                (res) => {
+                    const chunks = [];
+                    res.on('data', (d) => chunks.push(d));
+                    res.on('end', () => {
+                        const txt = Buffer.concat(chunks).toString('utf8');
+                        if (res.statusCode >= 200 && res.statusCode < 300) {
+                            try {
+                                const data = JSON.parse(txt || '{}');
+                                resolve({ ok: true, data });
+                            } catch (e) {
+                                resolve({ ok: false, error: 'invalid json' });
+                            }
+                        } else {
+                            resolve({ ok: false, error: `HTTP ${res.statusCode}: ${txt}` });
+                        }
+                    });
+                }
+            );
+            req.on('error', (e) => resolve({ ok: false, error: e.message }));
+            req.on('timeout', () => {
+                try { req.destroy(); } catch {}
+                resolve({ ok: false, error: 'timeout' });
+            });
+            req.end();
+        } catch (e) {
+            resolve({ ok: false, error: e.message || 'unknown' });
+        }
+    });
 }
 
 async function restartMediamtxService() {
