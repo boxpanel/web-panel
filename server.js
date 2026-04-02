@@ -333,6 +333,9 @@ function buildMediamtxConfigYaml(pathsConfig) {
         if (cfg.runOnInit) lines.push(`    runOnInit: ${JSON.stringify(cfg.runOnInit)}`);
         if (cfg.runOnInitRestart) lines.push('    runOnInitRestart: yes');
         if (typeof cfg.runOnInitStartTimeout === 'string') lines.push(`    runOnInitStartTimeout: ${cfg.runOnInitStartTimeout}`);
+        if (cfg.runOnReady) lines.push(`    runOnReady: ${JSON.stringify(cfg.runOnReady)}`);
+        if (cfg.runOnReadyRestart) lines.push('    runOnReadyRestart: yes');
+        if (typeof cfg.runOnReadyStartTimeout === 'string') lines.push(`    runOnReadyStartTimeout: ${cfg.runOnReadyStartTimeout}`);
     }
     lines.push('');
     return lines.join('\n');
@@ -3212,6 +3215,7 @@ app.post('/api/camera/mediamtx/stop', requireAuth, async (req, res) => {
             const pathName = bodyPath || (mediamtxActivePathConfigs.size ? Array.from(mediamtxActivePathConfigs.keys())[0] : '');
             if (pathName) {
                 mediamtxActivePathConfigs.delete(pathName);
+                mediamtxActivePathConfigs.delete(`${pathName}_src`);
             }
             const pathsConfig = {};
             for (const [p, cfg] of mediamtxActivePathConfigs.entries()) {
@@ -3280,12 +3284,17 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             }
 
             if (sourceCodec === 'h265') {
-                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265' });
-                mediamtxActivePathConfigs.set(pathName, {
-                    runOnInit: cmd,
-                    runOnInitRestart: true,
-                    runOnInitStartTimeout: '10s'
+                const sourcePathName = `${pathName}_src`;
+                const localSourceRtsp = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${sourcePathName}`;
+                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: localSourceRtsp, codec: 'h265' });
+                mediamtxActivePathConfigs.set(sourcePathName, {
+                    source: rtspUrl,
+                    sourceOnDemand: false,
+                    runOnReady: cmd,
+                    runOnReadyRestart: true,
+                    runOnReadyStartTimeout: '10s'
                 });
+                mediamtxActivePathConfigs.set(pathName, {});
             } else {
                 mediamtxActivePathConfigs.set(pathName, {
                     source: rtspUrl,
