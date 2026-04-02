@@ -279,7 +279,7 @@ function sanitizePathName(name) {
 
 function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec }) {
     const ffmpegBin = getFfmpegBinary();
-    const base = [
+    const baseInput = [
         ffmpegBin,
         '-hide_banner',
         '-loglevel', 'warning',
@@ -289,21 +289,29 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec }) {
         '-flags', 'low_delay',
         '-use_wallclock_as_timestamps', '1',
         '-analyzeduration', '2000000',
-        '-probesize', '2000000',
-        '-i', inputRtsp,
-        '-an'
+        '-probesize', '2000000'
     ];
 
     const output = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${pathName}`;
 
     if (codec === 'h264') {
-        return [...base, '-c:v', 'copy', '-f', 'rtsp', '-rtsp_transport', 'tcp', output].join(' ');
+        return [
+            ...baseInput,
+            '-i', inputRtsp,
+            '-an',
+            '-c:v', 'copy',
+            '-f', 'rtsp',
+            '-rtsp_transport', 'tcp',
+            output
+        ].join(' ');
     }
 
     return [
-        ...base,
+        ...baseInput,
         '-c:v', 'hevc_rkmpp',
+        '-i', inputRtsp,
         '-pix_fmt', 'nv12',
+        '-an',
         '-c:v', 'h264_rkmpp',
         '-profile:v', 'baseline',
         '-level', '5.1',
