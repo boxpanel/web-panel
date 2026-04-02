@@ -414,6 +414,10 @@ async function tryStartMediamtxLocal() {
         mtxLog('info', `尝试在本机启动MediaMTX: ${bin}`);
         const { spawn } = require('child_process');
         mediamtxProcess = spawn(bin, [], { stdio: ['ignore', 'pipe', 'pipe'] });
+        mediamtxProcess.on('error', (err) => {
+            mtxLastFailureReason = `启动MediaMTX进程失败: ${err.message}`;
+            mtxLog('error', mtxLastFailureReason);
+        });
         mediamtxProcess.stdout.on('data', d => {
             const t = String(d || '').trim();
             if (t) mtxLog('info', `MediaMTX输出: ${t}`);
@@ -435,6 +439,7 @@ async function tryStartMediamtxLocal() {
         return true;
     } catch (e) {
         mtxLastFailureReason = `无法在本机启动MediaMTX: ${e.message}`;
+        mtxLog('error', mtxLastFailureReason);
         return false;
     }
 }
