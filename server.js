@@ -570,7 +570,10 @@ async function launchMediamtxPublisher({ inputRtsp, mode, readyTimeoutMs, inputV
                 '-an',
                 '-pix_fmt', 'nv12',
                 '-c:v', 'h264_rkmpp',
+                '-profile:v', 'baseline',
+                '-level', '5.1',
                 ...encoderTuningArgs,
+                '-bsf:v', 'dump_extra',
                 '-f', 'rtsp',
                 '-rtsp_transport', 'tcp',
                 MEDIAMTX_RTSP_PUBLISH_URL
