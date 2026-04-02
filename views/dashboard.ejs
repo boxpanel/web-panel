@@ -8198,7 +8198,7 @@ let radarVisibilityBound = false;
         let rtspPlayer = null;
         let loadPlayer = null;
         
-        // 启动网络摄像头 (使用RTSPtoWeb WebRTC)
+        // 启动网络摄像头 (使用MediaMTX WHEP WebRTC)
         async function startNetworkCamera() {
             const ip = document.getElementById('camera-ip').value;
             const port = document.getElementById('camera-port').value;
@@ -8230,67 +8230,32 @@ let radarVisibilityBound = false;
                 
                 // 保存摄像头配置到数据库
                 await saveCameraConfig();
-                let whepUrl = null;
-                try {
-                    const mtxResponse = await fetch('/api/camera/mediamtx/stream', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({})
-                    });
-                    
-                    if (mtxResponse.status === 401) {
-                        window.location.href = '/login';
-                        return;
-                    }
-                    
-                    if (!mtxResponse.ok) {
-                        const errText = await mtxResponse.text();
-                        let parsed = null;
-                        try {
-                            parsed = JSON.parse(errText);
-                        } catch (e) {
-                        }
-                        throw new Error((parsed && parsed.error) ? parsed.error : (errText || `MediaMTX推流失败 (HTTP ${mtxResponse.status})`));
-                    }
-                    
-                    const mtxData = await mtxResponse.json();
-                    whepUrl = mtxData.whepUrl;
-                    addCameraLogToUI('info', `将通过MediaMTX WebRTC播放: ${whepUrl}`);
-                } catch (e) {
-                    addCameraLogToUI('warn', `MediaMTX不可用，回退RTSPtoWeb: ${e.message}`);
-                    
-                    const streamResponse = await fetch('/api/camera/rtsp2web/stream', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({})
-                    });
-                    
-                    if (streamResponse.status === 401) {
-                        window.location.href = '/login';
-                        return;
-                    }
-                    
-                    if (!streamResponse.ok) {
-                        let errorMessage = 'RTSPtoWeb流添加失败';
-                        try {
-                            const errorText = await streamResponse.text();
-                            let parsed = null;
-                            try {
-                                parsed = JSON.parse(errorText);
-                            } catch (e) {
-                            }
-                            errorMessage = (parsed && parsed.error) ? parsed.error : (errorText || errorMessage);
-                            throw new Error(errorMessage);
-                        } catch (e2) {
-                            errorMessage = `RTSPtoWeb流添加失败 (HTTP ${streamResponse.status})`;
-                            throw new Error(errorMessage);
-                        }
-                    }
+                const mtxResponse = await fetch('/api/camera/mediamtx/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                
+                if (mtxResponse.status === 401) {
+                    window.location.href = '/login';
+                    return;
                 }
+                
+                if (!mtxResponse.ok) {
+                    const errText = await mtxResponse.text();
+                    let parsed = null;
+                    try {
+                        parsed = JSON.parse(errText);
+                    } catch (e) {
+                    }
+                    throw new Error((parsed && parsed.error) ? parsed.error : (errText || `MediaMTX推流失败 (HTTP ${mtxResponse.status})`));
+                }
+                
+                const mtxData = await mtxResponse.json();
+                const whepUrl = mtxData.whepUrl;
+                addCameraLogToUI('info', `将通过MediaMTX WebRTC播放: ${whepUrl}`);
                 
                 // 在创建新的video元素前，先清理已存在的webrtc-video元素，防止重复创建
                 const container = document.getElementById('camera-container');
@@ -8459,53 +8424,23 @@ let radarVisibilityBound = false;
                     addCameraLogToUI('warn', 'ICE候选收集超时，将继续尝试协商');
                 }
 
-                if (whepUrl) {
-                    const whepResponse = await fetch(whepUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/sdp'
-                        },
-                        body: rtspPlayer.localDescription.sdp
-                    });
-                    if (!whepResponse.ok) {
-                        const errorText = await whepResponse.text();
-                        throw new Error(`WHEP协商失败: ${whepResponse.status} - ${errorText}`);
-                    }
-                    const answerSdp = await whepResponse.text();
-                    await rtspPlayer.setRemoteDescription(new RTCSessionDescription({
-                        type: 'answer',
-                        sdp: answerSdp
-                    }));
-                    addCameraLogToUI('info', 'WHEP远端Answer已设置');
-                } else {
-                    const webrtcResponse = await fetch('/api/camera/webrtc', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            data: btoa(rtspPlayer.localDescription.sdp)
-                        })
-                    });
-                    
-                    if (webrtcResponse.status === 401) {
-                        window.location.href = '/login';
-                        return;
-                    }
-                    
-                    if (!webrtcResponse.ok) {
-                        const errorText = await webrtcResponse.text();
-                        console.error('WebRTC协商失败，服务器响应:', webrtcResponse.status, errorText);
-                        throw new Error(`WebRTC协商失败: ${webrtcResponse.status} - ${errorText}`);
-                    }
-                    
-                    const sdpAnswer = await webrtcResponse.text();
-                    await rtspPlayer.setRemoteDescription(new RTCSessionDescription({
-                        type: 'answer',
-                        sdp: atob(sdpAnswer)
-                    }));
-                    addCameraLogToUI('info', 'WebRTC远端Answer已设置');
+                const whepResponse = await fetch(whepUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/sdp'
+                    },
+                    body: rtspPlayer.localDescription.sdp
+                });
+                if (!whepResponse.ok) {
+                    const errorText = await whepResponse.text();
+                    throw new Error(`WHEP协商失败: ${whepResponse.status} - ${errorText}`);
                 }
+                const answerSdp = await whepResponse.text();
+                await rtspPlayer.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: answerSdp
+                }));
+                addCameraLogToUI('info', 'WHEP远端Answer已设置');
 
                 const startWaitAt = Date.now();
                 const waitForFirstFrame = async () => {

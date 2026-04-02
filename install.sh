@@ -446,64 +446,8 @@ verify_installation() {
                 
                 if [ "$port_listening" = true ]; then
                     print_success "端口 $PORT 已正常监听"
-                    
-                    # 检查RTSPtoWeb服务状态
-                    # 确定RTSPtoWeb的systemctl命令
-                    if [ "$(id -u)" -eq 0 ]; then
-                        RTSPWEB_VERIFY_SYSTEMCTL_CMD="systemctl"
-                    else
-                        RTSPWEB_VERIFY_SYSTEMCTL_CMD="systemctl --user"
-                    fi
-                    
-                    if $RTSPWEB_VERIFY_SYSTEMCTL_CMD status rtspweb 2>&1 | grep -q "Active.*running"; then
-                        print_success "服务 rtspweb 运行正常"
-                        
-                        # 检查RTSPtoWeb端口监听
-                        rtspweb_port_listening=false
-                        RTSPWEB_PORT=8084
-                        
-                        # 方式1: 使用netstat检查RTSPtoWeb端口
-                        if command -v netstat >/dev/null 2>&1; then
-                            if netstat -tlnp 2>/dev/null | grep -q ":$RTSPWEB_PORT "; then
-                                rtspweb_port_listening=true
-                            fi
-                        fi
-                        
-                        # 方式2: 使用ss检查RTSPtoWeb端口
-                        if [ "$rtspweb_port_listening" = false ] && command -v ss >/dev/null 2>&1; then
-                            if ss -tlnp 2>/dev/null | grep -q ":$RTSPWEB_PORT "; then
-                                rtspweb_port_listening=true
-                            fi
-                        fi
-                        
-                        # 方式3: 使用lsof检查RTSPtoWeb端口
-                        if [ "$rtspweb_port_listening" = false ] && command -v lsof >/dev/null 2>&1; then
-                            if lsof -i :$RTSPWEB_PORT 2>/dev/null | grep -q LISTEN; then
-                                rtspweb_port_listening=true
-                            fi
-                        fi
-                        
-                        # 方式4: 使用nc测试RTSPtoWeb连接
-                        if [ "$rtspweb_port_listening" = false ] && command -v nc >/dev/null 2>&1; then
-                            if nc -z localhost $RTSPWEB_PORT 2>/dev/null; then
-                                rtspweb_port_listening=true
-                            fi
-                        fi
-                        
-                        if [ "$rtspweb_port_listening" = true ]; then
-                            print_success "端口 $RTSPWEB_PORT 已正常监听"
-                            print_success "安装验证通过"
-                            return 0
-                        else
-                            print_warning "RTSPtoWeb端口 $RTSPWEB_PORT 未正常监听，但Web Panel正常运行"
-                            print_success "安装验证通过"
-                            return 0
-                        fi
-                    else
-                        print_warning "RTSPtoWeb服务未正常运行，但Web Panel正常运行"
-                        print_success "安装验证通过"
-                        return 0
-                    fi
+                    print_success "安装验证通过"
+                    return 0
                 fi
             fi
         # 检查其他init系统（如OpenRC、SysV）
@@ -910,22 +854,6 @@ install_dependencies() {
         print_message "npm已安装: $(npm --version)"
     fi
     
-    # 检查Go是否已安装
-    if ! command -v go >/dev/null 2>&1; then
-        print_message "Go语言未安装，正在安装..."
-        install_golang
-    else
-        GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-        print_message "Go语言已安装: $GO_VERSION"
-        
-        # 检查Go版本是否过低
-        if [ "$(printf '%s\n' "1.18.0" "$GO_VERSION" | sort -V | head -n1)" = "1.18.0" ]; then
-            print_message "Go语言版本符合要求"
-        else
-            print_warning "Go语言版本过低 (当前: $GO_VERSION, 需要: >=1.18.0)，正在更新..."
-            install_golang
-        fi
-    fi
 }
 
 install_mediamtx() {
@@ -1551,302 +1479,6 @@ install_golang() {
     fi
 }
 
-# 设置RTSPtoWeb配置文件
-setup_rtspweb_config() {
-    print_message "正在检查RTSPtoWeb配置文件..."
-    
-    # 确保RTSPtoWeb目录存在
-    if [ ! -d "$INSTALL_DIR/RTSPtoWeb" ]; then
-        print_error "RTSPtoWeb目录不存在: $INSTALL_DIR/RTSPtoWeb"
-        return 1
-    fi
-    
-    local config_file="$INSTALL_DIR/RTSPtoWeb/config.json"
-    local backup_file="$INSTALL_DIR/RTSPtoWeb/config.json.backup"
-    
-    # 检查config.json文件是否存在
-    if [ -f "$config_file" ]; then
-        print_message "config.json文件已存在"
-        
-        # 验证JSON格式
-        if command -v python3 >/dev/null 2>&1; then
-            if python3 -m json.tool "$config_file" >/dev/null 2>&1; then
-                print_success "config.json格式正确"
-                return 0
-            else
-                print_warning "config.json格式错误，尝试修复..."
-            fi
-        fi
-    else
-        print_warning "config.json文件缺失"
-    fi
-    
-    # 尝试从备份文件恢复
-    if [ -f "$backup_file" ]; then
-        print_message "从备份文件恢复config.json..."
-        cp "$backup_file" "$config_file"
-        
-        # 验证恢复的文件
-        if command -v python3 >/dev/null 2>&1; then
-            if python3 -m json.tool "$config_file" >/dev/null 2>&1; then
-                print_success "已从备份恢复config.json"
-                return 0
-            fi
-        fi
-    fi
-    
-    # 创建默认配置文件
-    print_message "创建默认config.json文件..."
-    
-    # 确保目录权限正确
-    chmod 755 "$INSTALL_DIR/RTSPtoWeb"
-    
-    cat > "$config_file" << 'EOF'
-{
-  "channel_defaults": {
-    "on_demand": true,
-    "debug": false,
-    "status": 0
-  },
-  "server": {
-    "debug": true,
-    "log_level": "info",
-    "http_demo": true,
-    "http_debug": false,
-    "http_login": "demo",
-    "http_password": "demo",
-    "http_port": ":8084",
-    "https": false,
-    "https_auto_tls": false,
-    "https_auto_tls_name": "",
-    "https_cert": "server.crt",
-    "https_key": "server.key",
-    "https_port": ":443",
-    "ice_servers": [
-      {
-        "urls": ["stun:stun.l.google.com:19302"]
-      }
-    ],
-    "ice_username": "",
-    "ice_credential": "",
-    "webrtc_port_min": 0,
-    "webrtc_port_max": 0
-  },
-  "streams": {}
-}
-EOF
-    
-    # 验证创建的配置文件
-    if [ -f "$config_file" ]; then
-        if command -v python3 >/dev/null 2>&1; then
-            if python3 -m json.tool "$config_file" >/dev/null 2>&1; then
-                print_success "默认config.json文件创建成功"
-            else
-                print_error "创建的config.json文件格式错误"
-                return 1
-            fi
-        else
-            print_success "默认config.json文件创建成功"
-        fi
-        
-        # 创建备份文件
-        cp "$config_file" "$backup_file"
-        
-        # 设置文件权限
-        chmod 644 "$config_file" "$backup_file"
-        
-        # 设置文件所有者
-        if [ "$(id -u)" -eq 0 ]; then
-            chown "$INSTALL_USER:$INSTALL_GROUP" "$config_file" "$backup_file"
-        fi
-        
-        # 验证文件绝对路径和可读性
-        local abs_config_path=$(readlink -f "$config_file")
-        print_message "配置文件绝对路径: $abs_config_path"
-        
-        if [ -r "$config_file" ]; then
-            print_success "RTSPtoWeb配置文件设置完成，文件可读"
-        else
-            print_error "RTSPtoWeb配置文件不可读，请检查权限"
-            return 1
-        fi
-    else
-        print_error "无法创建config.json文件"
-        return 1
-    fi
-}
-
-# 修复现有RTSPtoWeb配置问题
-fix_rtspweb_config() {
-    print_message "检查并修复RTSPtoWeb配置问题..."
-    
-    local rtsp_dir="$INSTALL_DIR/RTSPtoWeb"
-    local config_file="$rtsp_dir/config.json"
-    local backup_file="$rtsp_dir/config.json.backup"
-    local service_name="rtspweb"
-    
-    # 检查RTSPtoWeb目录是否存在
-    if [ ! -d "$rtsp_dir" ]; then
-        print_warning "RTSPtoWeb目录不存在，跳过配置修复"
-        return 0
-    fi
-    
-    # 停止RTSPtoWeb服务（如果正在运行）
-    # 确定systemctl命令
-    if [ "$(id -u)" -eq 0 ]; then
-        FIX_SYSTEMCTL_CMD="systemctl"
-    else
-        FIX_SYSTEMCTL_CMD="systemctl --user"
-    fi
-    
-    if $FIX_SYSTEMCTL_CMD is-active --quiet "$service_name" 2>/dev/null; then
-        print_message "停止RTSPtoWeb服务进行配置修复..."
-        $FIX_SYSTEMCTL_CMD stop "$service_name" || true
-        sleep 2
-    fi
-    
-    # 检查并修复配置文件
-    local config_fixed=false
-    
-    if [ -f "$config_file" ]; then
-        # 验证现有配置文件格式
-        if command -v python3 >/dev/null 2>&1; then
-            if ! python3 -m json.tool "$config_file" >/dev/null 2>&1; then
-                print_warning "检测到损坏的config.json文件，尝试修复..."
-                # 备份损坏的文件
-                cp "$config_file" "$config_file.corrupted.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
-                rm -f "$config_file"
-                config_fixed=true
-            fi
-        fi
-    else
-        print_warning "config.json文件缺失，需要创建"
-        config_fixed=true
-    fi
-    
-    # 如果需要修复配置文件
-    if [ "$config_fixed" = true ]; then
-        # 尝试从备份恢复
-        if [ -f "$backup_file" ]; then
-            print_message "尝试从备份文件恢复config.json..."
-            if command -v python3 >/dev/null 2>&1; then
-                if python3 -m json.tool "$backup_file" >/dev/null 2>&1; then
-                    cp "$backup_file" "$config_file"
-                    print_success "已从备份恢复config.json"
-                    config_fixed=false
-                fi
-            else
-                cp "$backup_file" "$config_file"
-                print_success "已从备份恢复config.json"
-                config_fixed=false
-            fi
-        fi
-        
-        # 如果备份也无效，重新调用配置创建函数
-        if [ "$config_fixed" = true ]; then
-            print_message "重新创建config.json文件..."
-            cd "$rtsp_dir"
-            setup_rtspweb_config
-            cd "$INSTALL_DIR"
-        fi
-    fi
-    
-    # 检查并修复systemd服务配置
-    if [ "$(id -u)" -eq 0 ]; then
-        local service_file="/etc/systemd/system/${service_name}.service"
-    else
-        local service_file="$HOME/.config/systemd/user/${service_name}.service"
-    fi
-    
-    if [ -f "$service_file" ]; then
-        # 检查服务文件中是否指定了配置文件路径
-        if ! grep -q "\-config=" "$service_file"; then
-            print_message "修复systemd服务配置..."
-            # 备份原服务文件
-            cp "$service_file" "$service_file.backup.$(date +%Y%m%d-%H%M%S)" 2>/dev/null || true
-            
-            # 获取配置文件绝对路径
-            local abs_config_path=$(readlink -f "$config_file")
-            
-            # 修复服务文件
-            sed -i "s|ExecStart=\(.*RTSPtoWeb\)$|ExecStart=\1 -config=$abs_config_path|" "$service_file"
-            
-            # 重新加载systemd
-            $FIX_SYSTEMCTL_CMD daemon-reload
-            
-            print_success "systemd服务配置已修复"
-        fi
-    fi
-    
-    print_success "RTSPtoWeb配置修复完成"
-}
-
-# 编译RTSPtoWeb
-compile_rtspweb() {
-    print_message "正在编译RTSPtoWeb..."
-    
-    # 检查RTSPtoWeb目录是否存在
-    if [ ! -d "$INSTALL_DIR/RTSPtoWeb" ]; then
-        print_error "RTSPtoWeb目录不存在: $INSTALL_DIR/RTSPtoWeb"
-        return 1
-    fi
-    
-    # 进入RTSPtoWeb目录
-    cd "$INSTALL_DIR/RTSPtoWeb"
-    
-    # 检查go.mod文件是否存在
-    if [ ! -f "go.mod" ]; then
-        print_error "go.mod文件不存在，请检查RTSPtoWeb源码完整性"
-        return 1
-    fi
-    
-    # 设置Go环境变量
-    export PATH=$PATH:/usr/local/go/bin
-    export GOPROXY=https://goproxy.cn,direct
-    export GO111MODULE=on
-    
-    # 清理旧的编译文件
-    if [ -f "RTSPtoWeb" ]; then
-        rm -f RTSPtoWeb
-    fi
-    
-    # 下载Go依赖
-    print_message "正在下载Go依赖..."
-    if ! go mod download; then
-        print_error "下载Go依赖失败"
-        return 1
-    fi
-    
-    # 编译RTSPtoWeb
-    print_message "正在编译RTSPtoWeb二进制文件..."
-    if ! go build -o RTSPtoWeb .; then
-        print_error "编译RTSPtoWeb失败"
-        return 1
-    fi
-    
-    # 检查编译结果
-    if [ ! -f "RTSPtoWeb" ]; then
-        print_error "RTSPtoWeb二进制文件未生成"
-        return 1
-    fi
-    
-    # 设置执行权限
-    chmod +x RTSPtoWeb
-    
-    # 设置文件所有者
-    if [ "$(id -u)" -eq 0 ]; then
-        chown "$INSTALL_USER:$INSTALL_GROUP" RTSPtoWeb
-    fi
-    
-    print_success "RTSPtoWeb编译完成"
-    
-    # 检查并创建config.json文件
-    setup_rtspweb_config
-    
-    # 返回安装目录
-    cd "$INSTALL_DIR"
-}
-
 # 下载并安装面板
 install_panel() {
     print_message "正在下载Linux Server Panel..."
@@ -1979,9 +1611,6 @@ install_panel() {
     
     # 创建必要的目录
     mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/logs" "$INSTALL_DIR/uploads"
-    
-    # 编译RTSPtoWeb
-    compile_rtspweb
     
     print_success "面板安装完成"
 }
@@ -2290,182 +1919,13 @@ EOF
         journalctl --user -u "$SERVICE_NAME" --no-pager -l -n 10 || true
     fi
     
-    # 创建RTSPtoWeb服务
-    create_rtspweb_service
-}
-
-# 创建RTSPtoWeb systemd服务
-create_rtspweb_service() {
-    print_message "正在创建RTSPtoWeb系统服务..."
-    
-    RTSPWEB_SERVICE_NAME="rtspweb"
-    
-    # 根据用户权限确定RTSPtoWeb服务文件路径
-    if [ "$(id -u)" -eq 0 ]; then
-        # root用户：创建系统级服务
-        RTSPWEB_SERVICE_FILE="/etc/systemd/system/${RTSPWEB_SERVICE_NAME}.service"
-        RTSPWEB_SYSTEMCTL_CMD="systemctl"
-        print_message "创建RTSPtoWeb系统级服务"
-    else
-        # 非root用户：创建用户级服务
-        USER_SERVICE_DIR="$HOME/.config/systemd/user"
-        mkdir -p "$USER_SERVICE_DIR"
-        RTSPWEB_SERVICE_FILE="$USER_SERVICE_DIR/${RTSPWEB_SERVICE_NAME}.service"
-        RTSPWEB_SYSTEMCTL_CMD="systemctl --user"
-        print_message "创建RTSPtoWeb用户级服务"
-    fi
-    
-    RTSPWEB_BINARY="$INSTALL_DIR/RTSPtoWeb/RTSPtoWeb"
-    print_message "RTSPtoWeb服务文件: $RTSPWEB_SERVICE_FILE"
-    
-    # 检查RTSPtoWeb二进制文件是否存在
-    if [ ! -f "$RTSPWEB_BINARY" ]; then
-        print_error "RTSPtoWeb二进制文件不存在: $RTSPWEB_BINARY"
-        return 1
-    fi
-    
-    # 确保配置文件存在
-    local config_file="$INSTALL_DIR/RTSPtoWeb/config.json"
-    if [ ! -f "$config_file" ]; then
-        print_warning "RTSPtoWeb配置文件不存在，正在创建..."
-        cd "$INSTALL_DIR/RTSPtoWeb"
-        setup_rtspweb_config
-        cd "$INSTALL_DIR"
-    fi
-    
-    print_message "RTSPtoWeb二进制文件: $RTSPWEB_BINARY"
-    print_message "RTSPtoWeb工作目录: $INSTALL_DIR/RTSPtoWeb"
-    
-    # 创建RTSPtoWeb服务文件
-    cat > "$RTSPWEB_SERVICE_FILE" << EOF
-[Unit]
-Description=RTSPtoWeb Service
-Documentation=https://github.com/deepch/RTSPtoWeb
-After=network.target network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=$INSTALL_USER
-Group=$INSTALL_GROUP
-WorkingDirectory=$INSTALL_DIR/RTSPtoWeb
-ExecStart=$RTSPWEB_BINARY -config=$INSTALL_DIR/RTSPtoWeb/config.json
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=always
-RestartSec=10
-TimeoutStartSec=60
-TimeoutStopSec=20
-KillMode=mixed
-KillSignal=SIGTERM
-
-# 环境变量
-Environment=HOME=$HOME
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin
-
-# 安全设置
-NoNewPrivileges=false
-PrivateTmp=false
-ProtectSystem=false
-ReadWritePaths=$INSTALL_DIR/RTSPtoWeb /tmp
-ProtectHome=false
-
-# 文件系统权限
-UMask=0022
-
-# 日志设置
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=rtspweb
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    # 验证RTSPtoWeb服务文件
-    if [ ! -f "$RTSPWEB_SERVICE_FILE" ]; then
-        print_error "RTSPtoWeb服务文件创建失败"
-        return 1
-    fi
-    
-    print_success "RTSPtoWeb服务文件创建成功: $RTSPWEB_SERVICE_FILE"
-    
-    # 重新加载systemd
-    print_message "重新加载systemd配置..."
-    $RTSPWEB_SYSTEMCTL_CMD daemon-reload
-    
-    # 启用RTSPtoWeb服务
-    print_message "启用RTSPtoWeb服务..."
-    $RTSPWEB_SYSTEMCTL_CMD enable "$RTSPWEB_SERVICE_NAME"
-    
-    # 启动前最终检查配置文件
-    print_message "启动前检查RTSPtoWeb配置文件..."
-    local final_config_check="$INSTALL_DIR/RTSPtoWeb/config.json"
-    if [ ! -f "$final_config_check" ]; then
-        print_error "RTSPtoWeb配置文件仍然缺失，无法启动服务"
-        return 1
-    fi
-    
-    # 验证配置文件格式
-    if command -v python3 >/dev/null 2>&1; then
-        if ! python3 -m json.tool "$final_config_check" >/dev/null 2>&1; then
-            print_error "RTSPtoWeb配置文件格式错误，无法启动服务"
-            return 1
-        fi
-    fi
-    
-    print_success "RTSPtoWeb配置文件检查通过"
-    
-    # 启动RTSPtoWeb服务
-    print_message "启动RTSPtoWeb服务..."
-    if $RTSPWEB_SYSTEMCTL_CMD start "$RTSPWEB_SERVICE_NAME"; then
-        print_message "RTSPtoWeb服务启动命令执行成功"
-    else
-        print_error "RTSPtoWeb服务启动命令执行失败"
-        return 1
-    fi
-    
-    # 等待RTSPtoWeb服务启动并检查状态
-    print_message "等待RTSPtoWeb服务启动..."
-    for i in {1..15}; do
-        sleep 2
-        if $RTSPWEB_SYSTEMCTL_CMD is-active --quiet "$RTSPWEB_SERVICE_NAME"; then
-            print_success "RTSPtoWeb服务启动成功 ($i/15)"
-            break
-        elif [ $i -eq 15 ]; then
-            print_error "RTSPtoWeb服务启动超时"
-            print_message "RTSPtoWeb服务状态:"
-            $RTSPWEB_SYSTEMCTL_CMD status "$RTSPWEB_SERVICE_NAME" --no-pager -l || true
-            print_message "RTSPtoWeb最近的服务日志:"
-            if [ "$(id -u)" -eq 0 ]; then
-                journalctl -u "$RTSPWEB_SERVICE_NAME" --no-pager -l -n 30 || true
-            else
-                journalctl --user -u "$RTSPWEB_SERVICE_NAME" --no-pager -l -n 30 || true
-            fi
-            return 1
-        else
-            print_message "等待中... ($i/15)"
-        fi
-    done
-    
-    # 显示RTSPtoWeb服务状态和日志
-    print_message "RTSPtoWeb服务状态:"
-    $RTSPWEB_SYSTEMCTL_CMD status "$RTSPWEB_SERVICE_NAME" --no-pager -l || true
-    print_message "RTSPtoWeb最近的服务日志:"
-    if [ "$(id -u)" -eq 0 ]; then
-        journalctl -u "$RTSPWEB_SERVICE_NAME" --no-pager -l -n 10 || true
-    else
-        journalctl --user -u "$RTSPWEB_SERVICE_NAME" --no-pager -l -n 10 || true
-    fi
-    
-    print_success "RTSPtoWeb服务配置完成"
+    :
 }
 
 # 配置防火墙
 setup_firewall() {
     print_message "正在配置防火墙..."
-    
-    # RTSPtoWeb默认端口
-    RTSPWEB_PORT=8084
+    MEDIAMTX_WEBRTC_PORT=8889
     
     # 检查当前用户权限
     if [ "$(id -u)" -eq 0 ]; then
@@ -2479,9 +1939,9 @@ setup_firewall() {
             print_message "以sudo权限配置防火墙"
         else
             print_warning "当前用户无sudo权限，跳过防火墙配置"
-            print_message "请手动开放端口 $PORT (Web Panel) 和 $RTSPWEB_PORT (RTSPtoWeb)"
-            print_message "firewalld: sudo firewall-cmd --permanent --add-port=$PORT/tcp && sudo firewall-cmd --permanent --add-port=$RTSPWEB_PORT/tcp && sudo firewall-cmd --reload"
-            print_message "ufw: sudo ufw allow $PORT/tcp && sudo ufw allow $RTSPWEB_PORT/tcp"
+            print_message "请手动开放端口 $PORT (Web Panel) 和 $MEDIAMTX_WEBRTC_PORT (MediaMTX WebRTC)"
+            print_message "firewalld: sudo firewall-cmd --permanent --add-port=$PORT/tcp && sudo firewall-cmd --permanent --add-port=$MEDIAMTX_WEBRTC_PORT/tcp && sudo firewall-cmd --reload"
+            print_message "ufw: sudo ufw allow $PORT/tcp && sudo ufw allow $MEDIAMTX_WEBRTC_PORT/tcp"
             return 0
         fi
     fi
@@ -2492,9 +1952,9 @@ setup_firewall() {
     if command -v firewall-cmd >/dev/null 2>&1; then
         print_message "检测到firewalld，配置防火墙规则..."
         if $SUDO_PREFIX firewall-cmd --permanent --add-port=$PORT/tcp 2>/dev/null && \
-           $SUDO_PREFIX firewall-cmd --permanent --add-port=$RTSPWEB_PORT/tcp 2>/dev/null && \
+           $SUDO_PREFIX firewall-cmd --permanent --add-port=$MEDIAMTX_WEBRTC_PORT/tcp 2>/dev/null && \
            $SUDO_PREFIX firewall-cmd --reload 2>/dev/null; then
-            print_success "防火墙规则已添加 (firewalld) - Web Panel端口: $PORT, RTSPtoWeb端口: $RTSPWEB_PORT"
+            print_success "防火墙规则已添加 (firewalld) - Web Panel端口: $PORT, MediaMTX WebRTC端口: $MEDIAMTX_WEBRTC_PORT"
             firewall_configured=true
         else
             print_warning "firewalld配置失败，可能需要管理员权限"
@@ -2502,8 +1962,8 @@ setup_firewall() {
     elif command -v ufw >/dev/null 2>&1; then
         print_message "检测到ufw，配置防火墙规则..."
         if $SUDO_PREFIX ufw allow $PORT/tcp 2>/dev/null && \
-           $SUDO_PREFIX ufw allow $RTSPWEB_PORT/tcp 2>/dev/null; then
-            print_success "防火墙规则已添加 (ufw) - Web Panel端口: $PORT, RTSPtoWeb端口: $RTSPWEB_PORT"
+           $SUDO_PREFIX ufw allow $MEDIAMTX_WEBRTC_PORT/tcp 2>/dev/null; then
+            print_success "防火墙规则已添加 (ufw) - Web Panel端口: $PORT, MediaMTX WebRTC端口: $MEDIAMTX_WEBRTC_PORT"
             firewall_configured=true
         else
             print_warning "ufw配置失败，可能需要管理员权限"
@@ -2515,15 +1975,15 @@ setup_firewall() {
     if [ "$firewall_configured" = false ]; then
         print_warning "防火墙配置未成功，请手动开放以下端口："
         print_message "Web Panel端口: $PORT"
-        print_message "RTSPtoWeb端口: $RTSPWEB_PORT"
+        print_message "MediaMTX WebRTC端口: $MEDIAMTX_WEBRTC_PORT"
         print_message "手动配置命令："
         if command -v firewall-cmd >/dev/null 2>&1; then
             print_message "  sudo firewall-cmd --permanent --add-port=$PORT/tcp"
-            print_message "  sudo firewall-cmd --permanent --add-port=$RTSPWEB_PORT/tcp"
+            print_message "  sudo firewall-cmd --permanent --add-port=$MEDIAMTX_WEBRTC_PORT/tcp"
             print_message "  sudo firewall-cmd --reload"
         elif command -v ufw >/dev/null 2>&1; then
             print_message "  sudo ufw allow $PORT/tcp"
-            print_message "  sudo ufw allow $RTSPWEB_PORT/tcp"
+            print_message "  sudo ufw allow $MEDIAMTX_WEBRTC_PORT/tcp"
         fi
     fi
 }
@@ -2584,7 +2044,6 @@ show_result() {
         LOCAL_IP="localhost"
     fi
     printf "  Web Panel地址: %bhttp://%s:%s%b\n" "${GREEN}" "$LOCAL_IP" "$PORT" "${NC}"
-    printf "  RTSPtoWeb地址: %bhttp://%s:8084%b\n" "${GREEN}" "$LOCAL_IP" "${NC}"
     printf "  用户名: %b%s%b\n" "${GREEN}" "$USERNAME" "${NC}"
     printf "  密码: %b%s%b\n" "${GREEN}" "$PASSWORD" "${NC}"
     echo
@@ -2605,21 +2064,6 @@ show_result() {
         printf "  删除面板: %bcurl -fsSL https://raw.githubusercontent.com/boxpanel/web-panel/main/uninstall.sh | bash%b\n" "${YELLOW}" "${NC}"
     fi
     echo
-    printf "%b%s%b\n" "${BLUE}" "RTSPtoWeb管理命令:" "${NC}"
-    if [ "$(id -u)" -eq 0 ]; then
-        printf "  启动RTSPtoWeb: %bsystemctl start rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  停止RTSPtoWeb: %bsystemctl stop rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  重启RTSPtoWeb: %bsystemctl restart rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  查看状态: %bsystemctl status rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  查看日志: %bjournalctl -u rtspweb -f%b\n" "${YELLOW}" "${NC}"
-    else
-        printf "  启动RTSPtoWeb: %bsystemctl --user start rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  停止RTSPtoWeb: %bsystemctl --user stop rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  重启RTSPtoWeb: %bsystemctl --user restart rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  查看状态: %bsystemctl --user status rtspweb%b\n" "${YELLOW}" "${NC}"
-        printf "  查看日志: %bjournalctl --user -u rtspweb -f%b\n" "${YELLOW}" "${NC}"
-    fi
-    echo
     printf "%b%s%b\n" "${BLUE}" "配置文件:" "${NC}"
     printf "  安装目录: %b%s%b\n" "${YELLOW}" "$INSTALL_DIR" "${NC}"
     printf "  数据库文件: %b%s/server_panel.db%b\n" "${YELLOW}" "$DB_DIR" "${NC}"
@@ -2637,22 +2081,17 @@ enhanced_rollback() {
     if [ "$(id -u)" -eq 0 ]; then
         ENHANCED_SYSTEMCTL_CMD="systemctl"
         WEB_SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
-        RTSP_SERVICE_FILE="/etc/systemd/system/rtspweb.service"
     else
         ENHANCED_SYSTEMCTL_CMD="systemctl --user"
         WEB_SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME.service"
-        RTSP_SERVICE_FILE="$HOME/.config/systemd/user/rtspweb.service"
     fi
     
     $ENHANCED_SYSTEMCTL_CMD stop $SERVICE_NAME 2>/dev/null || true
     $ENHANCED_SYSTEMCTL_CMD disable $SERVICE_NAME 2>/dev/null || true
-    $ENHANCED_SYSTEMCTL_CMD stop rtspweb 2>/dev/null || true
-    $ENHANCED_SYSTEMCTL_CMD disable rtspweb 2>/dev/null || true
     
     # 2. 删除服务文件
     print_message "删除服务文件..."
     rm -f "$WEB_SERVICE_FILE"
-    rm -f "$RTSP_SERVICE_FILE"
     $ENHANCED_SYSTEMCTL_CMD daemon-reload
     
     # 3. 删除安装目录
@@ -2798,12 +2237,6 @@ main() {
     if ! setup_database; then
         enhanced_error_handler "数据库配置失败" "数据库配置" 1
     fi
-    
-    print_message "[8.5/10] 修复RTSPtoWeb配置"
-    if ! fix_rtspweb_config; then
-        print_warning "RTSPtoWeb配置修复失败，但不影响主要功能"
-    fi
-    
     print_message "[9/10] 创建系统服务"
     if ! create_service; then
         enhanced_error_handler "服务创建失败" "服务创建" 1
