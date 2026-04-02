@@ -242,12 +242,127 @@ const MEDIAMTX_PROBE_SIZE = process.env.MEDIAMTX_PROBE_SIZE || '2000000';
 const MEDIAMTX_PUBLISH_READY_TIMEOUT_MS = parseInt(process.env.MEDIAMTX_PUBLISH_READY_TIMEOUT_MS || '8000', 10);
 const MEDIAMTX_MAX_WIDTH = parseInt(process.env.MEDIAMTX_MAX_WIDTH || '3840', 10);
 const MEDIAMTX_MAX_HEIGHT = parseInt(process.env.MEDIAMTX_MAX_HEIGHT || '2160', 10);
+const MEDIAMTX_USE_CONFIG_TRANSCODE = os.platform() === 'linux' && String(process.env.MEDIAMTX_USE_CONFIG_TRANSCODE || '1') !== '0';
+const MEDIAMTX_CONFIG_PATH = process.env.MEDIAMTX_CONFIG_PATH || '/etc/mediamtx/mediamtx.yml';
+const MEDIAMTX_SERVICE_NAME = process.env.MEDIAMTX_SERVICE_NAME || 'mediamtx';
+let mediamtxActivePaths = new Set();
 
 function getRtspTimeoutArgs() {
     if (RTSP_USE_STIMEOUT) {
         return ['-stimeout', String(RTSP_IO_TIMEOUT_US)];
     }
     return [];
+}
+
+function getLocalIpForMediamtx() {
+    try {
+        const nets = os.networkInterfaces();
+        for (const name of Object.keys(nets)) {
+            for (const net of nets[name] || []) {
+                if (net && net.family === 'IPv4' && !net.internal && net.address) {
+                    return net.address;
+                }
+            }
+        }
+    } catch {
+    }
+    return '127.0.0.1';
+}
+
+function sanitizePathName(name) {
+    const raw = String(name || '').trim();
+    if (!raw) return '';
+    return raw.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec }) {
+    const ffmpegBin = getFfmpegBinary();
+    const base = [
+        ffmpegBin,
+        '-hide_banner',
+        '-loglevel', 'warning',
+        '-rtsp_transport', 'tcp',
+        '-analyzeduration', '2000000',
+        '-probesize', '2000000',
+        '-i', inputRtsp,
+        '-an'
+    ];
+
+    const output = `rtsp://127.0.0.1:${MEDIAMTX_RTSP_PORT}/${pathName}`;
+
+    if (codec === 'h264') {
+        return [...base, '-c:v', 'copy', '-f', 'rtsp', '-rtsp_transport', 'tcp', output].join(' ');
+    }
+
+    return [
+        ...base,
+        '-c:v', 'hevc_rkmpp',
+        '-pix_fmt', 'nv12',
+        '-c:v', 'h264_rkmpp',
+        '-profile:v', 'baseline',
+        '-level', '5.1',
+        '-g', '50',
+        '-bf', '0',
+        '-bsf:v', 'dump_extra',
+        '-f', 'rtsp',
+        '-rtsp_transport', 'tcp',
+        output
+    ].join(' ');
+}
+
+function buildMediamtxConfigYaml(pathsConfig) {
+    const localIp = getLocalIpForMediamtx();
+    const lines = [];
+    lines.push('logLevel: info');
+    lines.push('');
+    lines.push('rtsp: yes');
+    lines.push(`rtspAddress: :${MEDIAMTX_RTSP_PORT}`);
+    lines.push('rtspTransports: [tcp]');
+    lines.push('');
+    lines.push('webrtc: yes');
+    lines.push(`webrtcAddress: :${MEDIAMTX_WEBRTC_PORT}`);
+    lines.push("webrtcAllowOrigin: '*'");
+    lines.push(`webrtcAdditionalHosts: ['${localIp}']`);
+    lines.push('');
+    lines.push('paths:');
+    lines.push('  all_others: {}');
+    for (const [name, cfg] of Object.entries(pathsConfig || {})) {
+        lines.push(`  ${name}:`);
+        if (cfg.runOnDemand) lines.push(`    runOnDemand: ${JSON.stringify(cfg.runOnDemand)}`);
+        if (cfg.runOnDemandRestart) lines.push('    runOnDemandRestart: yes');
+        if (typeof cfg.runOnDemandCloseAfter === 'string') lines.push(`    runOnDemandCloseAfter: ${cfg.runOnDemandCloseAfter}`);
+        if (typeof cfg.runOnDemandStartTimeout === 'string') lines.push(`    runOnDemandStartTimeout: ${cfg.runOnDemandStartTimeout}`);
+    }
+    lines.push('');
+    return lines.join('\n');
+}
+
+async function restartMediamtxService() {
+    const { spawn } = require('child_process');
+    return new Promise((resolve) => {
+        const p = spawn('systemctl', ['restart', MEDIAMTX_SERVICE_NAME], { stdio: ['ignore', 'pipe', 'pipe'] });
+        const out = [];
+        const err = [];
+        p.stdout.on('data', d => out.push(String(d)));
+        p.stderr.on('data', d => err.push(String(d)));
+        p.on('close', (code) => {
+            resolve({ ok: code === 0, code, stdout: out.join(''), stderr: err.join('') });
+        });
+        p.on('error', (e) => {
+            resolve({ ok: false, code: -1, stdout: '', stderr: e.message });
+        });
+    });
+}
+
+async function applyMediamtxPathsConfig(pathsConfig) {
+    const fs = require('fs');
+    const yamlText = buildMediamtxConfigYaml(pathsConfig);
+    fs.writeFileSync(MEDIAMTX_CONFIG_PATH, yamlText, { encoding: 'utf8' });
+    const restart = await restartMediamtxService();
+    if (!restart.ok) {
+        throw new Error(`重启MediaMTX失败: ${restart.stderr || restart.stdout || restart.code}`);
+    }
+    await new Promise(r => setTimeout(r, 900));
 }
 
 // 摄像头日志相关函数
@@ -3091,6 +3206,20 @@ app.get('/api/camera/mediamtx/status', requireAuth, async (req, res) => {
 
 app.post('/api/camera/mediamtx/stop', requireAuth, async (req, res) => {
     try {
+        if (MEDIAMTX_USE_CONFIG_TRANSCODE) {
+            const bodyPath = req.body && req.body.path ? sanitizePathName(req.body.path) : '';
+            const pathName = bodyPath || (mediamtxActivePaths.size ? Array.from(mediamtxActivePaths)[0] : '');
+            if (pathName) {
+                mediamtxActivePaths.delete(pathName);
+            }
+            const pathsConfig = {};
+            for (const p of mediamtxActivePaths) {
+                pathsConfig[p] = {};
+            }
+            await applyMediamtxPathsConfig(pathsConfig);
+            res.json({ success: true });
+            return;
+        }
         await stopMediamtxPublisher();
         res.json({ success: true });
     } catch (e) {
@@ -3128,6 +3257,48 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
         }
         if (codec === 'h264') {
             rkLog('info', `检测到H264: profile=${videoInfo.profile || '未知'}, level=${videoInfo.level || '未知'}, 分辨率=${videoInfo.width || '?'}x${videoInfo.height || '?'}`);
+        }
+
+        const pathFromBody = req.body && req.body.path ? sanitizePathName(req.body.path) : '';
+        const defaultPath = sanitizePathName(`cam_${String(ip).replace(/\./g, '_')}`);
+        const pathName = pathFromBody || defaultPath || MEDIAMTX_PATH;
+
+        if (MEDIAMTX_USE_CONFIG_TRANSCODE) {
+            const sourceCodec = (codec === 'h264' ? 'h264' : 'h265');
+            if (sourceCodec === 'h265') {
+                rkLog('info', '检测到H265(HEVC)，将使用MediaMTX配置内runOnDemand + RK硬件转码');
+                if (!isRockchipRkmppAvailable()) {
+                    return res.status(500).json({ error: '当前设备不支持Rockchip硬件转码' });
+                }
+                const hasRkmpp = await checkFfmpegRkmppSupport();
+                if (!hasRkmpp) {
+                    return res.status(500).json({ error: 'ffmpeg未启用rkmpp，无法对H265进行硬件转码' });
+                }
+            } else {
+                rkLog('info', '检测到H264，将使用MediaMTX配置内runOnDemand直通copy');
+            }
+
+            const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: sourceCodec === 'h264' ? 'h264' : 'h265' });
+            const pathsConfig = {};
+            mediamtxActivePaths.add(pathName);
+            for (const p of mediamtxActivePaths) {
+                if (p === pathName) {
+                    pathsConfig[p] = {
+                        runOnDemand: cmd,
+                        runOnDemandRestart: true,
+                        runOnDemandCloseAfter: '5s',
+                        runOnDemandStartTimeout: '10s'
+                    };
+                } else {
+                    pathsConfig[p] = {};
+                }
+            }
+
+            await applyMediamtxPathsConfig(pathsConfig);
+            const host = req.hostname || 'localhost';
+            const whepUrl = `http://${host}:${MEDIAMTX_WEBRTC_PORT}/${pathName}/whep`;
+            res.json({ success: true, whepUrl, path: pathName });
+            return;
         }
 
         const maxAttempts = Math.max(1, parseInt(process.env.MEDIAMTX_PUBLISH_MAX_ATTEMPTS || '2', 10) || 2);
