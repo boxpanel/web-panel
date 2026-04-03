@@ -299,6 +299,8 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         '-rtsp_flags', 'prefer_tcp',
         '-fflags', 'nobuffer',
         '-flags', 'low_delay',
+        '-err_detect', 'ignore_err',
+        '-discardcorrupt', '1',
         '-use_wallclock_as_timestamps', '1',
         '-analyzeduration', '2000000',
         '-probesize', '2000000'
@@ -378,7 +380,7 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         const args = [...baseArgsSw];
         const insertAt = args.indexOf('-i');
         if (insertAt >= 0) {
-            args.splice(insertAt, 0, '-c:v', 'hevc_rkmpp');
+            args.splice(insertAt, 0, '-hwaccel', 'rkmpp', '-hwaccel_output_format', 'drm_prime', '-c:v', 'hevc_rkmpp');
         }
         const vfIdx = args.indexOf('-vf');
         if (vfIdx >= 0 && vfIdx + 1 < args.length) {
