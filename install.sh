@@ -878,12 +878,32 @@ install_mediamtx() {
 
     if [ ! -x "/usr/local/bin/mediamtx" ]; then
         print_message "正在安装MediaMTX..."
-        URL=$(curl -fsSL -H "User-Agent: web-panel-installer" https://api.github.com/repos/bluenviron/mediamtx/releases/latest 2>/dev/null | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
+        ARCH_CANDIDATES="$ASSET_ARCH"
+        if [ "$ASSET_ARCH" = "linux_arm64v8" ]; then
+            ARCH_CANDIDATES="linux_arm64v8 linux_arm64"
+        fi
+
+        URL=""
+        API_JSON=$(curl -fsSL -H "User-Agent: web-panel-installer" https://api.github.com/repos/bluenviron/mediamtx/releases/latest 2>/dev/null || true)
+        if [ -n "$API_JSON" ]; then
+            for A in $ARCH_CANDIDATES; do
+                URL=$(printf "%s" "$API_JSON" | grep browser_download_url | grep "$A" | cut -d\" -f 4 | head -n 1)
+                if [ -n "$URL" ]; then
+                    break
+                fi
+            done
+        fi
         if [ -z "$URL" ]; then
             EFFECTIVE=$(curl -fsSLI -o /dev/null -w '%{url_effective}' -L -H "User-Agent: web-panel-installer" https://github.com/bluenviron/mediamtx/releases/latest 2>/dev/null)
             TAG=$(printf "%s" "$EFFECTIVE" | sed 's|.*/tag/||' | tr -d '\r\n')
             if [ -n "$TAG" ]; then
-                URL="https://github.com/bluenviron/mediamtx/releases/download/${TAG}/mediamtx_${TAG}_${ASSET_ARCH}.tar.gz"
+                for A in $ARCH_CANDIDATES; do
+                    CAND="https://github.com/bluenviron/mediamtx/releases/download/${TAG}/mediamtx_${TAG}_${A}.tar.gz"
+                    if curl -fsSLI -o /dev/null -H "User-Agent: web-panel-installer" "$CAND" 2>/dev/null; then
+                        URL="$CAND"
+                        break
+                    fi
+                done
             fi
         fi
         if [ -z "$URL" ]; then
