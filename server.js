@@ -4172,7 +4172,6 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
 
             let dhcpEnabled = false;
             let dhcpActive = false;
-            let dhcpRange = null;
 
             if (await exists(dhcpServiceFile)) {
                 dhcpEnabled = true;
@@ -4186,22 +4185,6 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                 dhcpEnabled = true;
             }
 
-            if (await exists(dhcpConfFile)) {
-                try {
-                    const content = await fsPromises.readFile(dhcpConfFile, 'utf8');
-                    const m = content.match(/^\s*dhcp-range\s*=\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,/m);
-                    if (m) {
-                        dhcpRange = `${m[1]}-${m[2]}`;
-                    }
-                } catch {}
-            }
-            if (!dhcpRange && gatewayIp) {
-                const parts = gatewayIp.split('.');
-                if (parts.length === 4) {
-                    dhcpRange = `${parts[0]}.${parts[1]}.${parts[2]}.10-${parts[0]}.${parts[1]}.${parts[2]}.200`;
-                }
-            }
-
             res.json({
                 success: true,
                 supported: true,
@@ -4209,8 +4192,7 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                 gatewayIp,
                 prefix,
                 dhcpEnabled,
-                dhcpActive,
-                dhcpRange
+                dhcpActive
             });
         } catch (error) {
             console.error('获取eth1网关配置失败:', error);
@@ -4257,8 +4239,13 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             const leaseFile = '/var/lib/misc/webpanel-eth1-dnsmasq.leases';
 
             const base = `${octets[0]}.${octets[1]}.${octets[2]}.`;
+            const gwLast = octets[3];
             let rangeStart = 10;
             let rangeEnd = 200;
+            if (gwLast >= rangeStart && gwLast <= rangeEnd) {
+                rangeStart = 210;
+                rangeEnd = 250;
+            }
 
             const dnsmasqBin = (await (async () => {
                 try {
@@ -4355,6 +4342,64 @@ WantedBy=multi-user.target
         } catch (error) {
             console.error('保存eth1网关配置失败:', error);
             res.status(500).json({ success: false, error: '保存eth1网关配置失败' });
+        }
+    });
+
+    app.get('/api/eth1-dhcp-leases', requireAuth, async (req, res) => {
+        try {
+            if (os.platform() !== 'linux') {
+                return res.status(200).json({ success: true, supported: false, leases: [] });
+            }
+
+            const leaseFile = '/var/lib/misc/webpanel-eth1-dnsmasq.leases';
+
+            let content = '';
+            try {
+                content = await fsPromises.readFile(leaseFile, 'utf8');
+            } catch {
+                return res.status(200).json({ success: true, supported: true, leases: [] });
+            }
+
+            const now = Math.floor(Date.now() / 1000);
+            const leases = content
+                .split('\n')
+                .map(l => l.trim())
+                .filter(Boolean)
+                .map((line) => {
+                    const parts = line.split(/\s+/);
+                    if (parts.length < 4) {
+                        return null;
+                    }
+                    const expiry = Number(parts[0]);
+                    const mac = parts[1] || '';
+                    const ip = parts[2] || '';
+                    const hostnameRaw = parts[3] || '';
+                    const hostname = hostnameRaw === '*' ? '' : hostnameRaw;
+                    const clientId = parts.slice(4).join(' ') || '';
+
+                    let expiresAt = null;
+                    let remainingSeconds = null;
+
+                    if (!Number.isNaN(expiry) && expiry > 0) {
+                        expiresAt = expiry * 1000;
+                        remainingSeconds = Math.max(0, expiry - now);
+                    }
+
+                    return {
+                        hostname,
+                        mac,
+                        ip,
+                        expiresAt,
+                        remainingSeconds,
+                        clientId
+                    };
+                })
+                .filter(Boolean);
+
+            res.json({ success: true, supported: true, leases });
+        } catch (error) {
+            console.error('获取eth1 DHCP租约失败:', error);
+            res.status(500).json({ success: false, error: '获取eth1 DHCP租约失败' });
         }
     });
 
