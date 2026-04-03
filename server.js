@@ -333,9 +333,8 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
     const requireFullHardware = Boolean(opts && opts.requireFullHardware);
     const scaleToMaxRga = `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})':format=nv12`;
     const scaleToMaxCpu = `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
-    const evenCrop = 'crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2';
     const evenScale = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
-    const vfChainRga = [scaleToMaxRga, evenCrop].filter(Boolean).join(',');
+    const vfChainRga = [scaleToMaxRga].filter(Boolean).join(',');
     const vfChainCpuSw = [scaleToMaxCpu, evenScale, 'format=nv12', fpsFilter].filter(Boolean).join(',');
 
     const baseArgsSw = [
@@ -360,6 +359,10 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
 
     const cmdCpu = (() => {
         const args = [...baseArgsSw];
+        const inputIdx = args.indexOf('-i');
+        if (inputIdx >= 0) {
+            args.splice(inputIdx, 0, '-c:v', 'hevc');
+        }
         const vfIdx = args.indexOf('-vf');
         if (vfIdx >= 0 && vfIdx + 1 < args.length) {
             args[vfIdx + 1] = quoteForShDouble(vfChainCpuSw);
