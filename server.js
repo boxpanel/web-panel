@@ -284,6 +284,11 @@ function quoteForShDouble(value) {
     return `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
 }
 
+function quoteForShSingle(value) {
+    const s = String(value ?? '');
+    return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
 function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps, opts }) {
     const ffmpegBin = getFfmpegBinary();
     const baseInput = [
@@ -315,7 +320,8 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
 
     const fpsFilter = (() => {
         const defFps = parseInt(process.env.MEDIAMTX_DEFAULT_FPS || '25', 10);
-        const srcFps = (typeof inputFps === 'number' && inputFps > 0) ? Math.round(inputFps) : null;
+        const rawSrcFps = (typeof inputFps === 'number' && inputFps > 0) ? Math.round(inputFps) : null;
+        const srcFps = (rawSrcFps && rawSrcFps >= 5 && rawSrcFps <= 120) ? rawSrcFps : null;
         const capFps = opts && typeof opts.capFps === 'number' && opts.capFps > 0 ? Math.round(opts.capFps) : (MEDIAMTX_MAX_FPS > 0 ? MEDIAMTX_MAX_FPS : (srcFps || defFps));
         const picked = Math.max(1, Math.min((srcFps || defFps), capFps));
         return `fps=${picked}`;
@@ -324,18 +330,20 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
     const maxW = opts && typeof opts.maxW === 'number' && opts.maxW > 0 ? opts.maxW : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
     const maxH = opts && typeof opts.maxH === 'number' && opts.maxH > 0 ? opts.maxH : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
     const useRga = Boolean(opts && opts.useRga);
-    const scaleToMax = useRga
-        ? `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`
-        : `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
-    const scaleEven = useRga ? 'crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2' : 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
-    const vfChain = [scaleToMax, scaleEven, 'format=nv12', fpsFilter].filter(Boolean).join(',');
+    const scaleToMaxRga = `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
+    const scaleToMaxCpu = `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
+    const evenCrop = 'crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2';
+    const evenScale = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
+    const vfChainRga = [scaleToMaxRga, evenCrop, 'format=nv12', fpsFilter].filter(Boolean).join(',');
+    const vfChainCpu = [scaleToMaxCpu, evenScale, 'format=nv12', fpsFilter].filter(Boolean).join(',');
 
-    return [
+    const baseArgs = [
         ...baseInput,
         '-c:v', 'hevc_rkmpp',
         '-i', inputRtsp,
-        '-vf', quoteForShDouble(vfChain),
-        '-vsync', 'drop',
+        '-vf',
+        '',
+        '-fps_mode', 'drop',
         '-an',
         '-c:v', 'h264_rkmpp',
         '-profile:v', 'baseline',
@@ -346,7 +354,31 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         '-f', 'rtsp',
         '-rtsp_transport', 'tcp',
         output
-    ].join(' ');
+    ];
+
+    const cmdCpu = (() => {
+        const args = [...baseArgs];
+        const vfIdx = args.indexOf('-vf');
+        if (vfIdx >= 0 && vfIdx + 1 < args.length) {
+            args[vfIdx + 1] = quoteForShDouble(vfChainCpu);
+        }
+        return args.join(' ');
+    })();
+
+    if (!useRga) {
+        return cmdCpu;
+    }
+
+    const cmdRga = (() => {
+        const args = [...baseArgs];
+        const vfIdx = args.indexOf('-vf');
+        if (vfIdx >= 0 && vfIdx + 1 < args.length) {
+            args[vfIdx + 1] = quoteForShDouble(vfChainRga);
+        }
+        return args.join(' ');
+    })();
+
+    return `/bin/sh -lc ${quoteForShSingle(`${cmdRga}; exec ${cmdCpu}`)}`;
 }
 
 function buildMediamtxConfigYaml(pathsConfig) {
