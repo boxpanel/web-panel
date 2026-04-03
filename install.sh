@@ -1084,17 +1084,44 @@ install_jellyfin_ffmpeg7_ubuntu_arm64() {
         return 1
     fi
 
-    dpkg -i "$TMP_DEB" >/dev/null 2>&1 || true
-    $PM -f install -y >/dev/null 2>&1 || true
+    JELLYFIN_FFMPEG_BIN=""
+    JELLYFIN_FFPROBE_BIN=""
+    if command -v dpkg-deb >/dev/null 2>&1; then
+        JELLYFIN_FFMPEG_BIN=$(dpkg-deb -c "$TMP_DEB" 2>/dev/null | awk '{print $6}' | grep -E '/ffmpeg$' | head -n 1 | sed 's|^\./|/|')
+        JELLYFIN_FFPROBE_BIN=$(dpkg-deb -c "$TMP_DEB" 2>/dev/null | awk '{print $6}' | grep -E '/ffprobe$' | head -n 1 | sed 's|^\./|/|')
+    fi
+    export JELLYFIN_FFMPEG_BIN
+    export JELLYFIN_FFPROBE_BIN
 
-    if [ -x "/usr/lib/jellyfin-ffmpeg/ffmpeg" ]; then
-        print_success "jellyfin-ffmpeg7已安装: /usr/lib/jellyfin-ffmpeg/ffmpeg"
-        if /usr/lib/jellyfin-ffmpeg/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q "h264_rkmpp"; then
+    dpkg -i "$TMP_DEB" >>"$LOG_FILE" 2>&1 || true
+    $PM -f install -y >>"$LOG_FILE" 2>&1 || true
+    dpkg -i "$TMP_DEB" >>"$LOG_FILE" 2>&1 || true
+
+    if [ -z "$JELLYFIN_FFMPEG_BIN" ] || [ ! -x "$JELLYFIN_FFMPEG_BIN" ]; then
+        if [ -x "/usr/lib/jellyfin-ffmpeg/ffmpeg" ]; then
+            JELLYFIN_FFMPEG_BIN="/usr/lib/jellyfin-ffmpeg/ffmpeg"
+        elif [ -x "/usr/lib/jellyfin-ffmpeg7/ffmpeg" ]; then
+            JELLYFIN_FFMPEG_BIN="/usr/lib/jellyfin-ffmpeg7/ffmpeg"
+        fi
+    fi
+    if [ -z "$JELLYFIN_FFPROBE_BIN" ] || [ ! -x "$JELLYFIN_FFPROBE_BIN" ]; then
+        if [ -x "/usr/lib/jellyfin-ffmpeg/ffprobe" ]; then
+            JELLYFIN_FFPROBE_BIN="/usr/lib/jellyfin-ffmpeg/ffprobe"
+        elif [ -x "/usr/lib/jellyfin-ffmpeg7/ffprobe" ]; then
+            JELLYFIN_FFPROBE_BIN="/usr/lib/jellyfin-ffmpeg7/ffprobe"
+        fi
+    fi
+    export JELLYFIN_FFMPEG_BIN
+    export JELLYFIN_FFPROBE_BIN
+
+    if [ -n "$JELLYFIN_FFMPEG_BIN" ] && [ -x "$JELLYFIN_FFMPEG_BIN" ]; then
+        print_success "jellyfin-ffmpeg7已安装: $JELLYFIN_FFMPEG_BIN"
+        if "$JELLYFIN_FFMPEG_BIN" -hide_banner -encoders 2>/dev/null | grep -q "h264_rkmpp"; then
             print_success "检测到h264_rkmpp编码器"
         else
             print_warning "未检测到h264_rkmpp编码器"
         fi
-        if /usr/lib/jellyfin-ffmpeg/ffmpeg -hide_banner -filters 2>/dev/null | grep -q "scale_rkrga"; then
+        if "$JELLYFIN_FFMPEG_BIN" -hide_banner -filters 2>/dev/null | grep -q "scale_rkrga"; then
             print_success "检测到scale_rkrga滤镜"
         else
             print_warning "未检测到scale_rkrga滤镜"
@@ -1617,8 +1644,8 @@ Environment=PORT=$PORT
 Environment=USERNAME=$USERNAME
 Environment=PASSWORD=$PASSWORD
 Environment=DB_DIR=$DB_DIR
-Environment=MEDIAMTX_FFMPEG_BIN=/usr/lib/jellyfin-ffmpeg/ffmpeg
-Environment=MEDIAMTX_FFPROBE_BIN=/usr/lib/jellyfin-ffmpeg/ffprobe
+Environment=MEDIAMTX_FFMPEG_BIN=${JELLYFIN_FFMPEG_BIN:-/usr/lib/jellyfin-ffmpeg/ffmpeg}
+Environment=MEDIAMTX_FFPROBE_BIN=${JELLYFIN_FFPROBE_BIN:-/usr/lib/jellyfin-ffmpeg/ffprobe}
 Environment=HOME=$HOME
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
