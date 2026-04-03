@@ -628,8 +628,15 @@ async function checkFfmpegRkmppSupport() {
 function getFfmpegBinary() {
     try {
         const fs = require('fs');
+        const envBin = process.env.MEDIAMTX_FFMPEG_BIN || process.env.FFMPEG_BIN;
+        if (envBin && fs.existsSync(envBin)) {
+            return envBin;
+        }
         if (os.platform() === 'linux' && fs.existsSync('/usr/local/bin/ffmpeg')) {
             return '/usr/local/bin/ffmpeg';
+        }
+        if (os.platform() === 'linux' && fs.existsSync('/usr/bin/ffmpeg')) {
+            return '/usr/bin/ffmpeg';
         }
     } catch {
     }
@@ -639,8 +646,15 @@ function getFfmpegBinary() {
 function getFfprobeBinary() {
     try {
         const fs = require('fs');
+        const envBin = process.env.MEDIAMTX_FFPROBE_BIN || process.env.FFPROBE_BIN;
+        if (envBin && fs.existsSync(envBin)) {
+            return envBin;
+        }
         if (os.platform() === 'linux' && fs.existsSync('/usr/local/bin/ffprobe')) {
             return '/usr/local/bin/ffprobe';
+        }
+        if (os.platform() === 'linux' && fs.existsSync('/usr/bin/ffprobe')) {
+            return '/usr/bin/ffprobe';
         }
     } catch {
     }
