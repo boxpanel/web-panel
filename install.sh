@@ -827,7 +827,7 @@ install_dependencies() {
     # 安装媒体工具（ffmpeg/ffprobe，使用Jellyfin jellyfin-ffmpeg7）
     install_media_tools
 
-    install_mediamtx
+    install_mediamtx || exit 1
     
     # 检查Node.js是否已安装
     if ! command -v node >/dev/null 2>&1; then
@@ -914,49 +914,56 @@ install_mediamtx() {
         TMP_DIR="/tmp/mediamtx-install"
         rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
         mkdir -p "$TMP_DIR" || return 0
-
-        DOWNLOAD_OK=false
-        if curl -fL -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -o "$TMP_DIR/mediamtx.tar.gz" "$URL" >/dev/null 2>&1; then
-            DOWNLOAD_OK=true
-        fi
-        if [ "$DOWNLOAD_OK" != "true" ]; then
-            print_warning "下载MediaMTX失败，跳过安装"
-            return 0
-        fi
-
-        MAGIC=$(head -c 2 "$TMP_DIR/mediamtx.tar.gz" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n\r')
-        if [ "$MAGIC" != "1f8b" ]; then
-            ALT_URL="${URL}?download=1"
-            if curl -fL -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -o "$TMP_DIR/mediamtx.tar.gz" "$ALT_URL" >/dev/null 2>&1; then
-                MAGIC=$(head -c 2 "$TMP_DIR/mediamtx.tar.gz" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n\r')
-            fi
-        fi
-        if [ "$MAGIC" != "1f8b" ]; then
-            print_warning "下载到的MediaMTX文件不是tar.gz（可能被代理/网络劫持为HTML），跳过安装"
-            head -n 5 "$TMP_DIR/mediamtx.tar.gz" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
-            return 0
-        fi
-
+        ARCHIVE_PATH="$TMP_DIR/mediamtx.tar.gz"
         LIST_LOG="$TMP_DIR/tar-list.log"
-        if ! tar -tzf "$TMP_DIR/mediamtx.tar.gz" >"$LIST_LOG" 2>&1; then
-            print_warning "MediaMTX压缩包校验失败（不是有效的tar.gz），跳过安装"
-            tail -n 20 "$LIST_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
-            return 0
-        fi
-        if ! grep -Eq '(^|/)mediamtx$' "$LIST_LOG" 2>/dev/null; then
-            print_warning "MediaMTX压缩包内容异常（未找到mediamtx二进制文件），跳过安装"
-            head -n 20 "$LIST_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
-            return 0
+        DOWNLOAD_LOG="$TMP_DIR/download.log"
+
+        URL_BASES="$URL ${URL}?download=1"
+        MIRRORS="${MEDIAMTX_DOWNLOAD_MIRRORS:-} https://ghproxy.com/ https://mirror.ghproxy.com/"
+        USED_URL=""
+
+        for B in $URL_BASES; do
+            for P in $MIRRORS; do
+                CAND="$B"
+                if [ -n "$P" ]; then
+                    CAND="${P}${B}"
+                fi
+
+                rm -f "$ARCHIVE_PATH" >/dev/null 2>&1 || true
+                if ! curl -fL --retry 3 --retry-delay 1 -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -o "$ARCHIVE_PATH" "$CAND" >"$DOWNLOAD_LOG" 2>&1; then
+                    continue
+                fi
+
+                if ! tar -tzf "$ARCHIVE_PATH" >"$LIST_LOG" 2>&1; then
+                    continue
+                fi
+                if ! grep -Eq '(^|/)mediamtx$' "$LIST_LOG" 2>/dev/null; then
+                    continue
+                fi
+                USED_URL="$CAND"
+                break
+            done
+            if [ -n "$USED_URL" ]; then
+                break
+            fi
+        done
+
+        if [ -z "$USED_URL" ]; then
+            print_error "MediaMTX在线下载安装失败（下载内容不是有效tar.gz或网络被拦截）。请检查网络，或设置 MEDIAMTX_DOWNLOAD_MIRRORS 使用可访问的镜像前缀。"
+            tail -n 30 "$DOWNLOAD_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
+            return 1
         fi
 
-        if ! tar -xzf "$TMP_DIR/mediamtx.tar.gz" -C "$TMP_DIR"; then
-            print_warning "解压MediaMTX失败，跳过安装"
-            return 0
+        if ! tar -xzf "$ARCHIVE_PATH" -C "$TMP_DIR"; then
+            print_error "解压MediaMTX失败（已下载URL: $USED_URL）"
+            tail -n 30 "$LIST_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
+            return 1
         fi
 
         if [ ! -f "$TMP_DIR/mediamtx" ]; then
-            print_warning "未找到MediaMTX二进制文件，跳过安装"
-            return 0
+            print_error "未找到MediaMTX二进制文件（已下载URL: $USED_URL）"
+            head -n 30 "$LIST_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
+            return 1
         fi
 
         mv -f "$TMP_DIR/mediamtx" /usr/local/bin/mediamtx >/dev/null 2>&1 || true
