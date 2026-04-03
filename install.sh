@@ -1069,7 +1069,11 @@ install_jellyfin_ffmpeg7_ubuntu_arm64() {
 
     PAGE_URL="https://repo.jellyfin.org/?path=/ffmpeg/ubuntu/latest-7.x/arm64"
     BASE_URL="https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/arm64"
-    FILE_NAME=$(curl -fsSL "$PAGE_URL" 2>/dev/null | grep -oE 'jellyfin-ffmpeg7_[^" <]*-noble_arm64\.deb' | head -n 1)
+    FILE_NAME=$(curl -fsSL "$PAGE_URL" 2>/dev/null | grep -oE "jellyfin-ffmpeg7_[^\" <>'>]*-noble_arm64\.deb" | head -n 1)
+    if [ -z "$FILE_NAME" ]; then
+        return 1
+    fi
+    FILE_NAME=$(printf "%s" "$FILE_NAME" | tr -d "'>" | tr -d '\r\n')
     if [ -z "$FILE_NAME" ]; then
         return 1
     fi
