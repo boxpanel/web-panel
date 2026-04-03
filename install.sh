@@ -1070,6 +1070,61 @@ install_ffmpeg_standard() {
     esac
 }
 
+install_rkrga_from_source() {
+    if [ "$(id -u)" -ne 0 ]; then
+        return 1
+    fi
+    if [ "$SYSTEM" != "debian" ]; then
+        return 1
+    fi
+    ARCH=$(uname -m 2>/dev/null || echo unknown)
+    if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
+        return 1
+    fi
+
+    $PM install -y build-essential git pkg-config meson ninja-build >/dev/null 2>&1 || true
+    $PM install -y libdrm-dev libx11-dev libxext-dev libxfixes-dev >/dev/null 2>&1 || true
+
+    RGA_DIR="/tmp/rkrga-build"
+    rm -rf "$RGA_DIR" >/dev/null 2>&1 || true
+    mkdir -p "$RGA_DIR" || return 1
+    cd "$RGA_DIR" || return 1
+
+    if ! git clone -b jellyfin-rga --depth 1 https://github.com/nyanmisaka/rk-mirrors.git rkrga-src >/dev/null 2>&1; then
+        return 1
+    fi
+
+    cd "$RGA_DIR/rkrga-src" || return 1
+
+    RGA_SETUP_LOG="$RGA_DIR/rga-setup.log"
+    RGA_BUILD_LOG="$RGA_DIR/rga-build.log"
+    RGA_INSTALL_LOG="$RGA_DIR/rga-install.log"
+
+    meson setup build --prefix=/usr/local --buildtype=release >"$RGA_SETUP_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "RKRGA meson setup失败: $RGA_SETUP_LOG"
+        tail -n 80 "$RGA_SETUP_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    ninja -C build >"$RGA_BUILD_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "RKRGA编译失败: $RGA_BUILD_LOG"
+        tail -n 80 "$RGA_BUILD_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    ninja -C build install >"$RGA_INSTALL_LOG" 2>&1
+    if [ $? -ne 0 ]; then
+        print_warning "RKRGA安装失败: $RGA_INSTALL_LOG"
+        tail -n 80 "$RGA_INSTALL_LOG" 2>/dev/null | tee -a "$LOG_FILE" || true
+        return 1
+    fi
+
+    ldconfig >/dev/null 2>&1 || true
+    return 0
+}
+
 install_ffmpeg_rockchip_from_source() {
     if [ "$(id -u)" -ne 0 ]; then
         print_warning "当前非root用户，跳过ffmpeg-rockchip源码编译安装（需要写入/usr/local）"
@@ -1107,6 +1162,8 @@ install_ffmpeg_rockchip_from_source() {
         ldconfig >/dev/null 2>&1 || true
     fi
 
+    install_rkrga_from_source || true
+
     BUILD_DIR="/tmp/ffmpeg-rockchip-build"
     rm -rf "$BUILD_DIR" >/dev/null 2>&1 || true
     mkdir -p "$BUILD_DIR" || return 1
@@ -1130,6 +1187,16 @@ install_ffmpeg_rockchip_from_source() {
     MAKE_LOG="$BUILD_DIR/make.log"
     INSTALL_LOG="$BUILD_DIR/install.log"
 
+    CONFIGURE_HELP_LOG="$BUILD_DIR/configure-help.log"
+    ./configure --help >"$CONFIGURE_HELP_LOG" 2>&1 || true
+    EXTRA_OPTS=""
+    if grep -qi "rkrga" "$CONFIGURE_HELP_LOG" 2>/dev/null; then
+        EXTRA_OPTS="$EXTRA_OPTS --enable-rkrga"
+    fi
+    if grep -qi "librga" "$CONFIGURE_HELP_LOG" 2>/dev/null; then
+        EXTRA_OPTS="$EXTRA_OPTS --enable-librga"
+    fi
+
     ./configure \
         --prefix=/usr/local \
         --enable-gpl \
@@ -1139,7 +1206,8 @@ install_ffmpeg_rockchip_from_source() {
         --enable-libdrm \
         --enable-rkmpp \
         --enable-libx264 \
-        --enable-libx265 >"$CONFIGURE_LOG" 2>&1
+        --enable-libx265 \
+        $EXTRA_OPTS >"$CONFIGURE_LOG" 2>&1
     if [ $? -ne 0 ]; then
         print_warning "configure失败，回退安装系统ffmpeg"
         print_warning "configure日志: $CONFIGURE_LOG"
@@ -1179,6 +1247,11 @@ install_ffmpeg_rockchip_from_source() {
 
     if has_rkmpp_support; then
         print_success "ffmpeg-rockchip安装成功（检测到rkmpp编解码器）"
+        if /usr/local/bin/ffmpeg -hide_banner -filters 2>/dev/null | grep -q "scale_rkrga"; then
+            print_success "检测到scale_rkrga滤镜（缩放将优先走RGA）"
+        else
+            print_warning "未检测到scale_rkrga滤镜（缩放可能仍由CPU处理）"
+        fi
         return 0
     fi
 
