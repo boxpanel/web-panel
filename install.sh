@@ -1646,6 +1646,7 @@ Environment=PASSWORD=$PASSWORD
 Environment=DB_DIR=$DB_DIR
 Environment=MEDIAMTX_FFMPEG_BIN=${JELLYFIN_FFMPEG_BIN:-/usr/lib/jellyfin-ffmpeg/ffmpeg}
 Environment=MEDIAMTX_FFPROBE_BIN=${JELLYFIN_FFPROBE_BIN:-/usr/lib/jellyfin-ffmpeg/ffprobe}
+Environment=MEDIAMTX_REQUIRE_FULL_HW=1
 Environment=HOME=$HOME
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 

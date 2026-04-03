@@ -699,43 +699,45 @@ function isRockchipRkmppAvailable() {
 }
 
 async function checkFfmpegRkmppSupport() {
+    const bin = getFfmpegBinary();
     const now = Date.now();
-    if (rkFfmpegRkmppSupportCache.ok !== null && (now - rkFfmpegRkmppSupportCache.checkedAt) < 60000) {
+    if (rkFfmpegRkmppSupportCache.ok !== null && rkFfmpegRkmppSupportCache.bin === bin && (now - rkFfmpegRkmppSupportCache.checkedAt) < 60000) {
         rkLog('info', `ffmpeg rkmpp能力缓存: ${rkFfmpegRkmppSupportCache.ok ? '支持' : '不支持'}`);
         return rkFfmpegRkmppSupportCache.ok;
     }
     try {
         rkLog('info', '检测ffmpeg是否包含rkmpp编解码器...');
-        const dec = await ProcessUtils.spawnCommand(getFfmpegBinary(), ['-hide_banner', '-decoders'], { timeout: 8000 });
-        const enc = await ProcessUtils.spawnCommand(getFfmpegBinary(), ['-hide_banner', '-encoders'], { timeout: 8000 });
+        const dec = await ProcessUtils.spawnCommand(bin, ['-hide_banner', '-decoders'], { timeout: 12000 });
+        const enc = await ProcessUtils.spawnCommand(bin, ['-hide_banner', '-encoders'], { timeout: 12000 });
         const hasHevcDec = (dec.stdout || '').includes('hevc_rkmpp') || (dec.stderr || '').includes('hevc_rkmpp');
         const hasH264Enc = (enc.stdout || '').includes('h264_rkmpp') || (enc.stderr || '').includes('h264_rkmpp');
         const ok = Boolean(hasHevcDec && hasH264Enc);
-        rkFfmpegRkmppSupportCache = { ok, checkedAt: now };
+        rkFfmpegRkmppSupportCache = { ok, checkedAt: now, bin };
         rkLog('info', `rkmpp检测结果: hevc_rkmpp解码=${hasHevcDec ? '是' : '否'}, h264_rkmpp编码=${hasH264Enc ? '是' : '否'}`);
         return ok;
     } catch (e) {
-        rkFfmpegRkmppSupportCache = { ok: false, checkedAt: now };
+        rkFfmpegRkmppSupportCache = { ok: false, checkedAt: now, bin };
         rkLog('warn', `检测ffmpeg rkmpp能力失败: ${e.message}`);
         return false;
     }
 }
 
-let rkFfmpegRgaSupportCache = { ok: null, checkedAt: 0 };
+let rkFfmpegRgaSupportCache = { ok: null, checkedAt: 0, bin: '' };
 async function checkFfmpegRgaSupport() {
+    const bin = getFfmpegBinary();
     const now = Date.now();
-    if (rkFfmpegRgaSupportCache.ok !== null && (now - rkFfmpegRgaSupportCache.checkedAt) < 60000) {
+    if (rkFfmpegRgaSupportCache.ok !== null && rkFfmpegRgaSupportCache.bin === bin && (now - rkFfmpegRgaSupportCache.checkedAt) < 60000) {
         return rkFfmpegRgaSupportCache.ok;
     }
     try {
-        const res = await ProcessUtils.spawnCommand(getFfmpegBinary(), ['-hide_banner', '-filters'], { timeout: 8000 });
+        const res = await ProcessUtils.spawnCommand(bin, ['-hide_banner', '-filters'], { timeout: 12000 });
         const out = (res.stdout || '') + (res.stderr || '');
         const ok = /scale_rkrga|vpp_rkrga|rkrga/i.test(out);
-        rkFfmpegRgaSupportCache = { ok, checkedAt: now };
+        rkFfmpegRgaSupportCache = { ok, checkedAt: now, bin };
         rkLog('info', `RGA滤镜检测: ${ok ? '可用' : '不可用'}`);
         return ok;
     } catch (e) {
-        rkFfmpegRgaSupportCache = { ok: false, checkedAt: now };
+        rkFfmpegRgaSupportCache = { ok: false, checkedAt: now, bin };
         rkLog('warn', `检测RGA滤镜失败: ${e.message}`);
         return false;
     }
@@ -3636,14 +3638,15 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
 
             if (sourceCodec === 'h265') {
                 const opts = deriveTranscodeOptions(videoInfo);
+                const requireFullHardware = String(process.env.MEDIAMTX_REQUIRE_FULL_HW || '1') !== '0';
                 const hasRga = await checkFfmpegRgaSupport();
-                const requireFullHardware = String(process.env.MEDIAMTX_REQUIRE_FULL_HW || '') === '1';
                 if (requireFullHardware && !hasRga) {
                     return res.status(500).json({ error: '已启用全硬件模式(MEDIAMTX_REQUIRE_FULL_HW=1)，但未检测到RGA滤镜(scale_rkrga/vpp_rkrga)。请安装支持rkrga的ffmpeg后重试。' });
                 }
                 if (requireFullHardware) {
                     rkLog('info', '全硬件模式已启用：将仅使用RKMpp+RGA链路，禁用CPU回退');
                 }
+                rkLog('info', `ffmpeg选择: bin=${getFfmpegBinary()} rga=${hasRga ? '是' : '否'} requireFullHw=${requireFullHardware ? '是' : '否'}`);
                 const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null), opts: { ...opts, useRga: hasRga, requireFullHardware } });
                 mediamtxActivePathConfigs.set(pathName, {
                     runOnInit: cmd,
