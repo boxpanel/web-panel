@@ -875,37 +875,53 @@ configure_eth1_gateway_and_dhcp() {
     if ! command -v ip >/dev/null 2>&1; then
         return 1
     fi
-    if ! ip link show eth1 >/dev/null 2>&1; then
-        print_warning "未检测到eth1网口，跳过eth1网关与DHCP配置"
-        return 0
+    ETH1_IFACE="${WEBPANEL_ETH1_IFACE:-eth1}"
+    if ! ip link show "$ETH1_IFACE" >/dev/null 2>&1; then
+        DEFAULT_DEV="$(ip -4 route show default 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i=="dev") {print $(i+1); exit}}')"
+        CAND_IFACE=""
+        for d in $(ip -o link show 2>/dev/null | cut -d': ' -f2 | cut -d'@' -f1); do
+            if [ "$d" = "lo" ]; then
+                continue
+            fi
+            if [ -n "$DEFAULT_DEV" ] && [ "$d" = "$DEFAULT_DEV" ]; then
+                continue
+            fi
+            CAND_IFACE="$d"
+            break
+        done
+        if [ -z "$CAND_IFACE" ]; then
+            print_warning "未检测到eth1网口，且无法自动选择设备网口（可通过 WEBPANEL_ETH1_IFACE 指定）"
+            return 0
+        fi
+        ETH1_IFACE="$CAND_IFACE"
+        print_warning "未检测到eth1网口，改用 $ETH1_IFACE 作为设备网口（可通过 WEBPANEL_ETH1_IFACE 覆盖）"
     fi
 
-    print_message "配置eth1静态网关IP与DHCP（192.168.50.1/24）..."
+    print_message "配置${ETH1_IFACE}静态网关IP与DHCP（192.168.50.1/24）..."
 
     if command -v netplan >/dev/null 2>&1 && [ -d "/etc/netplan" ]; then
         NETPLAN_FILE="/etc/netplan/99-webpanel-eth1.yaml"
-        if ! ip -4 addr show eth1 2>/dev/null | grep -q "192.168.50.1/24"; then
-            cat > "$NETPLAN_FILE" << 'EOF'
+        if ! ip -4 addr show "$ETH1_IFACE" 2>/dev/null | grep -q "192.168.50.1/24"; then
+            cat > "$NETPLAN_FILE" << EOF
 network:
   version: 2
-  renderer: networkd
   ethernets:
-    eth1:
+    $ETH1_IFACE:
       dhcp4: false
       addresses:
         - 192.168.50.1/24
 EOF
             netplan apply >/dev/null 2>&1 || {
                 print_warning "netplan apply失败，尝试使用ip命令临时配置eth1地址"
-                ip addr add 192.168.50.1/24 dev eth1 >/dev/null 2>&1 || true
-                ip link set eth1 up >/dev/null 2>&1 || true
+                ip addr add 192.168.50.1/24 dev "$ETH1_IFACE" >/dev/null 2>&1 || true
+                ip link set "$ETH1_IFACE" up >/dev/null 2>&1 || true
             }
         fi
     else
-        if ! ip -4 addr show eth1 2>/dev/null | grep -q "192.168.50.1/24"; then
-            ip addr add 192.168.50.1/24 dev eth1 >/dev/null 2>&1 || true
+        if ! ip -4 addr show "$ETH1_IFACE" 2>/dev/null | grep -q "192.168.50.1/24"; then
+            ip addr add 192.168.50.1/24 dev "$ETH1_IFACE" >/dev/null 2>&1 || true
         fi
-        ip link set eth1 up >/dev/null 2>&1 || true
+        ip link set "$ETH1_IFACE" up >/dev/null 2>&1 || true
     fi
 
     if [ "$SYSTEM" = "debian" ]; then
@@ -915,28 +931,83 @@ EOF
         print_warning "dnsmasq未安装，无法在eth1上启用DHCP服务"
         return 0
     fi
+    DNSMASQ_BIN="$(command -v dnsmasq 2>/dev/null || echo /usr/sbin/dnsmasq)"
+    if ! command -v systemctl >/dev/null 2>&1; then
+        print_warning "未检测到systemctl，无法创建/启动webpanel-eth1-dhcp systemd服务（将仅写入dnsmasq配置）"
+    fi
 
     DNSMASQ_CONF_DIR="/etc/dnsmasq.d"
     if [ ! -d "$DNSMASQ_CONF_DIR" ]; then
         mkdir -p "$DNSMASQ_CONF_DIR" >/dev/null 2>&1 || true
     fi
+    if [ ! -d "/var/lib/misc" ]; then
+        mkdir -p "/var/lib/misc" >/dev/null 2>&1 || true
+    fi
 
     DHCP_CONF="$DNSMASQ_CONF_DIR/webpanel-eth1-dhcp.conf"
-    cat > "$DHCP_CONF" << 'EOF'
-interface=eth1
+    cat > "$DHCP_CONF" << EOF
+port=0
+interface=$ETH1_IFACE
 bind-interfaces
+dhcp-authoritative
 dhcp-range=192.168.50.10,192.168.50.200,255.255.255.0,12h
 dhcp-option=3,192.168.50.1
 dhcp-option=6,1.1.1.1,8.8.8.8
+dhcp-leasefile=/var/lib/misc/webpanel-eth1-dnsmasq.leases
 EOF
 
-    systemctl enable dnsmasq >/dev/null 2>&1 || true
-    systemctl restart dnsmasq >/dev/null 2>&1 || {
-        print_warning "dnsmasq重启失败，请检查是否与系统现有DNS/DHCP服务冲突"
+    if ! "$DNSMASQ_BIN" --test --conf-file="$DHCP_CONF" >/dev/null 2>&1; then
+        print_warning "dnsmasq配置自检失败（webpanel-eth1-dhcp.conf），DHCP服务将跳过启动"
+        "$DNSMASQ_BIN" --test --conf-file="$DHCP_CONF" 2>&1 | tail -n 40 | tee -a "$LOG_FILE" >/dev/null || true
+        return 0
+    fi
+    if command -v ss >/dev/null 2>&1; then
+        if ss -lunp 2>/dev/null | grep -Eq ':(67)\b'; then
+            print_warning "检测到系统已有服务占用UDP 67（DHCP）。webpanel-eth1-dhcp 可能无法启动；请检查是否已有DHCP服务在运行"
+            ss -lunp 2>/dev/null | grep -E ':(67)\b' | tail -n 20 | tee -a "$LOG_FILE" >/dev/null || true
+        fi
+    fi
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        return 0
+    fi
+
+    DHCP_SERVICE_FILE="/etc/systemd/system/webpanel-eth1-dhcp.service"
+    cat > "$DHCP_SERVICE_FILE" << EOF
+[Unit]
+Description=Web Panel eth1 DHCP (dnsmasq)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$DNSMASQ_BIN --keep-in-foreground --conf-file=$DHCP_CONF
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    if [ ! -f "$DHCP_SERVICE_FILE" ]; then
+        print_warning "写入DHCP服务文件失败: $DHCP_SERVICE_FILE"
+        return 0
+    fi
+
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable webpanel-eth1-dhcp >/dev/null 2>&1 || true
+    systemctl restart webpanel-eth1-dhcp >/dev/null 2>&1 || {
+        print_warning "DHCP服务启动失败(webpanel-eth1-dhcp)，请检查冲突与systemd日志"
+        ls -l "$DHCP_SERVICE_FILE" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
+        systemctl status webpanel-eth1-dhcp -l --no-pager 2>/dev/null | tail -n 60 | tee -a "$LOG_FILE" >/dev/null || true
+        journalctl -u webpanel-eth1-dhcp -n 80 --no-pager 2>/dev/null | tail -n 80 | tee -a "$LOG_FILE" >/dev/null || true
+        if command -v ss >/dev/null 2>&1; then
+            ss -lunp 2>/dev/null | grep -E ':(53|67)\b' | tail -n 80 | tee -a "$LOG_FILE" >/dev/null || true
+        fi
         return 0
     }
 
-    print_success "eth1网关与DHCP已配置（eth1: 192.168.50.1/24, DHCP: 192.168.50.10-200）"
+    print_success "${ETH1_IFACE}网关与DHCP已配置（${ETH1_IFACE}: 192.168.50.1/24, DHCP: 192.168.50.10-200）"
     return 0
 }
 
