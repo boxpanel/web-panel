@@ -6462,6 +6462,8 @@ let radarVisibilityBound = false;
         }
 
         function createEth1GatewayModal(interfaceName, config) {
+            const prefix = config.prefix || 24;
+            const dhcpRange = config.dhcpRange || '192.168.50.10-192.168.50.200';
             const modalHtml = `
                 <div class="modal fade" id="eth1GatewayModal" tabindex="-1" aria-labelledby="eth1GatewayModalLabel" aria-hidden="true">
                     <div class="modal-dialog">
@@ -6477,15 +6479,15 @@ let radarVisibilityBound = false;
                                 <div class="alert alert-info d-flex align-items-start" style="font-size: 0.9rem;">
                                     <i class="bi bi-info-circle me-2 mt-1"></i>
                                     <div>
-                                        <div class="fw-semibold">eth1 默认启用 DHCP</div>
-                                        <div class="text-muted">修改网关后，DHCP 会自动更新并重启服务</div>
+                                        <div class="fw-semibold">${interfaceName}: ${(config.gatewayIp || '').replace(/"/g, '&quot;')}/${prefix}</div>
+                                        <div class="text-muted">DHCP 分配IP：${dhcpRange}</div>
                                     </div>
                                 </div>
 
                                 <div class="mb-3">
                                     <label class="form-label">网关IP</label>
                                     <input type="text" class="form-control" id="eth1-gateway-ip" value="${(config.gatewayIp || '').replace(/"/g, '&quot;')}" placeholder="192.168.50.1">
-                                    <div class="form-text">当前前缀：/${config.prefix || 24}</div>
+                                    <div class="form-text">前缀固定：/${prefix}</div>
                                 </div>
 
                                 <div class="d-flex align-items-center justify-content-between">

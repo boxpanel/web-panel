@@ -4172,6 +4172,7 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
 
             let dhcpEnabled = false;
             let dhcpActive = false;
+            let dhcpRange = null;
 
             if (await exists(dhcpServiceFile)) {
                 dhcpEnabled = true;
@@ -4185,6 +4186,22 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                 dhcpEnabled = true;
             }
 
+            if (await exists(dhcpConfFile)) {
+                try {
+                    const content = await fsPromises.readFile(dhcpConfFile, 'utf8');
+                    const m = content.match(/^\s*dhcp-range\s*=\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,/m);
+                    if (m) {
+                        dhcpRange = `${m[1]}-${m[2]}`;
+                    }
+                } catch {}
+            }
+            if (!dhcpRange && gatewayIp) {
+                const parts = gatewayIp.split('.');
+                if (parts.length === 4) {
+                    dhcpRange = `${parts[0]}.${parts[1]}.${parts[2]}.10-${parts[0]}.${parts[1]}.${parts[2]}.200`;
+                }
+            }
+
             res.json({
                 success: true,
                 supported: true,
@@ -4192,7 +4209,8 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
                 gatewayIp,
                 prefix,
                 dhcpEnabled,
-                dhcpActive
+                dhcpActive,
+                dhcpRange
             });
         } catch (error) {
             console.error('获取eth1网关配置失败:', error);
@@ -4239,13 +4257,8 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             const leaseFile = '/var/lib/misc/webpanel-eth1-dnsmasq.leases';
 
             const base = `${octets[0]}.${octets[1]}.${octets[2]}.`;
-            const gwLast = octets[3];
             let rangeStart = 10;
             let rangeEnd = 200;
-            if (gwLast >= rangeStart && gwLast <= rangeEnd) {
-                rangeStart = 210;
-                rangeEnd = 250;
-            }
 
             const dnsmasqBin = (await (async () => {
                 try {
