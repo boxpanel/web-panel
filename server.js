@@ -318,14 +318,18 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
 
     const maxW = opts && typeof opts.maxW === 'number' && opts.maxW > 0 ? opts.maxW : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
     const maxH = opts && typeof opts.maxH === 'number' && opts.maxH > 0 ? opts.maxH : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
-    const scaleToMax = `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
-    const scaleEven = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
+    const useRga = Boolean(opts && opts.useRga);
+    const scaleToMax = useRga
+        ? `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`
+        : `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
+    const scaleEven = useRga ? 'crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2' : 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
+    const vfChain = [scaleToMax, scaleEven, 'format=nv12', fpsFilter].filter(Boolean).join(',');
 
     return [
         ...baseInput,
         '-c:v', 'hevc_rkmpp',
         '-i', inputRtsp,
-        '-vf', `${scaleToMax},${scaleEven},format=nv12,${fpsFilter}`,
+        '-vf', vfChain,
         '-vsync', 'drop',
         '-an',
         '-c:v', 'h264_rkmpp',
@@ -418,6 +422,52 @@ async function fetchMediamtxPathsList() {
     }
 }
 
+function normalizeMediamtxPathsItems(data) {
+    try {
+        if (!data) return [];
+        if (Array.isArray(data.items)) return data.items;
+        if (Array.isArray(data.paths)) return data.paths;
+        if (Array.isArray(data)) return data;
+        return [];
+    } catch {
+        return [];
+    }
+}
+
+async function getMediamtxPathItem(pathName) {
+    const safeName = sanitizePathName(pathName);
+    if (!safeName) return { ok: false, error: 'path无效' };
+    const result = await fetchMediamtxPathsList();
+    if (!result.ok) return result;
+    const items = normalizeMediamtxPathsItems(result.data);
+    const item = items.find((it) => it && it.name === safeName) || null;
+    return { ok: true, item };
+}
+
+async function waitForMediamtxPathReady(pathName, timeoutMs) {
+    const safeName = sanitizePathName(pathName);
+    const waitMs = Math.max(500, typeof timeoutMs === 'number' && !Number.isNaN(timeoutMs) ? timeoutMs : 6000);
+    const start = Date.now();
+    let lastLogAt = 0;
+    let lastItem = null;
+    while (Date.now() - start < waitMs) {
+        const res = await getMediamtxPathItem(safeName);
+        if (!res.ok) return { ok: false, error: res.error || '无法读取MediaMTX path状态', item: null };
+        lastItem = res.item;
+        if (lastItem && lastItem.ready) {
+            return { ok: true, ready: true, item: lastItem };
+        }
+        const elapsed = Date.now() - start;
+        if (elapsed - lastLogAt >= 1500) {
+            const readers = lastItem && Array.isArray(lastItem.readers) ? lastItem.readers.length : 0;
+            addCameraLog('info', `[MediaMTX] 等待path就绪中... path=${safeName} ready=${lastItem ? Boolean(lastItem.ready) : '未知'} readers=${readers} elapsed=${Math.floor(elapsed / 1000)}s`);
+            lastLogAt = elapsed;
+        }
+        await new Promise(r => setTimeout(r, 350));
+    }
+    return { ok: true, ready: Boolean(lastItem && lastItem.ready), item: lastItem };
+}
+
 function httpGetJson(url, timeoutMs = 1500) {
     return new Promise((resolve) => {
         try {
@@ -501,8 +551,8 @@ async function getMediamtxServiceDebugInfo() {
         p.on('error', (e) => resolve({ code: -1, stdout: '', stderr: e.message }));
     });
     return {
-        status: tailText(status.stdout || status.stderr || '', 30),
-        journal: tailText(journal.stdout || journal.stderr || '', 30)
+        status: sanitizeFfmpegText(tailText(status.stdout || status.stderr || '', 30)),
+        journal: sanitizeFfmpegText(tailText(journal.stdout || journal.stderr || '', 30))
     };
 }
 
@@ -621,6 +671,26 @@ async function checkFfmpegRkmppSupport() {
     } catch (e) {
         rkFfmpegRkmppSupportCache = { ok: false, checkedAt: now };
         rkLog('warn', `检测ffmpeg rkmpp能力失败: ${e.message}`);
+        return false;
+    }
+}
+
+let rkFfmpegRgaSupportCache = { ok: null, checkedAt: 0 };
+async function checkFfmpegRgaSupport() {
+    const now = Date.now();
+    if (rkFfmpegRgaSupportCache.ok !== null && (now - rkFfmpegRgaSupportCache.checkedAt) < 60000) {
+        return rkFfmpegRgaSupportCache.ok;
+    }
+    try {
+        const res = await ProcessUtils.spawnCommand(getFfmpegBinary(), ['-hide_banner', '-filters'], { timeout: 8000 });
+        const out = (res.stdout || '') + (res.stderr || '');
+        const ok = /scale_rkrga|vpp_rkrga|rkrga/i.test(out);
+        rkFfmpegRgaSupportCache = { ok, checkedAt: now };
+        rkLog('info', `RGA滤镜检测: ${ok ? '可用' : '不可用'}`);
+        return ok;
+    } catch (e) {
+        rkFfmpegRgaSupportCache = { ok: false, checkedAt: now };
+        rkLog('warn', `检测RGA滤镜失败: ${e.message}`);
         return false;
     }
 }
@@ -3520,7 +3590,8 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
 
             if (sourceCodec === 'h265') {
                 const opts = deriveTranscodeOptions(videoInfo);
-                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null), opts });
+                const hasRga = await checkFfmpegRgaSupport();
+                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null), opts: { ...opts, useRga: hasRga } });
                 mediamtxActivePathConfigs.set(pathName, {
                     runOnInit: cmd,
                     runOnInitRestart: true,
@@ -3539,17 +3610,23 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
 
             await applyMediamtxPathsConfig(pathsConfig);
             addCameraLog('info', `MediaMTX配置已更新并重启: path=${pathName}`);
-            const check = await fetchMediamtxPathsList();
-            if (check.ok) {
-                const items = check.data && Array.isArray(check.data.items) ? check.data.items : [];
-                const main = items.find((it) => it && it.name === pathName);
-                if (main) {
-                    addCameraLog('info', `MediaMTX输出路径状态: ${main.name} ready=${Boolean(main.ready)} readers=${Array.isArray(main.readers) ? main.readers.length : 0}`);
+            if (MEDIAMTX_ENABLE_API) {
+                const waitMs = parseInt(process.env.MEDIAMTX_PATH_READY_WAIT_MS || '6000', 10);
+                const waited = await waitForMediamtxPathReady(pathName, waitMs);
+                if (waited.ok) {
+                    const main = waited.item;
+                    if (main) {
+                        addCameraLog('info', `MediaMTX输出路径状态: ${main.name} ready=${Boolean(main.ready)} readers=${Array.isArray(main.readers) ? main.readers.length : 0}`);
+                    } else {
+                        addCameraLog('warn', `MediaMTX未找到输出路径: ${pathName}`);
+                    }
+                    if (!waited.ready) {
+                        const dbg = await getMediamtxServiceDebugInfo();
+                        addCameraLog('warn', `MediaMTX path未就绪(可能runOnInit/ffmpeg未成功发布): path=${pathName}。status=${dbg.status}。journal=${dbg.journal}`);
+                    }
                 } else {
-                    addCameraLog('warn', `MediaMTX未找到输出路径: ${pathName}`);
+                    addCameraLog('warn', `无法读取MediaMTX API路径状态: ${waited.error}`);
                 }
-            } else {
-                addCameraLog('warn', `无法读取MediaMTX API路径状态: ${check.error}`);
             }
             const whepHost = process.env.MEDIAMTX_PUBLIC_HOST || getLocalIpForMediamtx();
             const whepUrl = `http://${whepHost}:${MEDIAMTX_WEBRTC_PORT}/${pathName}/whep`;
