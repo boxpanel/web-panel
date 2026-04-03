@@ -6390,6 +6390,10 @@ let radarVisibilityBound = false;
         
         // 显示网络设置
         function showNetworkSettings(interfaceName) {
+            if (interfaceName === 'eth1') {
+                showEth1GatewaySettings(interfaceName);
+                return;
+            }
             // 移除已存在的模态框
             const existingModal = document.getElementById('networkSettingsModal');
             if (existingModal) {
@@ -6422,6 +6426,133 @@ let radarVisibilityBound = false;
                     bindNetworkSettingsToForm(interfaceName);
                 });
             });
+        }
+
+        function showEth1GatewaySettings(interfaceName) {
+            const existingModal = document.getElementById('eth1GatewayModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            fetch(`/api/eth1-gateway-config?interface=${encodeURIComponent(interfaceName)}`)
+                .then(async (response) => {
+                    if (response.status === 401) {
+                        window.location.href = '/login';
+                        return null;
+                    }
+                    const data = await response.json();
+                    return data;
+                })
+                .then((data) => {
+                    if (!data) return;
+                    if (!data.success) {
+                        showErrorAlert(data.error || '获取eth1网关配置失败');
+                        return;
+                    }
+                    if (data.supported === false) {
+                        showErrorAlert('当前系统不支持此功能');
+                        return;
+                    }
+                    createEth1GatewayModal(interfaceName, data);
+                })
+                .catch((error) => {
+                    console.error('加载eth1网关配置失败:', error);
+                    showErrorAlert('加载eth1网关配置失败');
+                });
+        }
+
+        function createEth1GatewayModal(interfaceName, config) {
+            const modalHtml = `
+                <div class="modal fade" id="eth1GatewayModal" tabindex="-1" aria-labelledby="eth1GatewayModalLabel" aria-hidden="true">
+                    <div class="modal-dialog">
+                        <div class="modal-content border-0 shadow-lg">
+                            <div class="modal-header bg-gradient" style="background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); border: none;">
+                                <h5 class="modal-title text-white fw-bold" id="eth1GatewayModalLabel">
+                                    <i class="bi bi-router me-2"></i>
+                                    ${interfaceName} 网关设置
+                                </h5>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body p-4">
+                                <div class="alert alert-info d-flex align-items-start" style="font-size: 0.9rem;">
+                                    <i class="bi bi-info-circle me-2 mt-1"></i>
+                                    <div>
+                                        <div class="fw-semibold">eth1 默认启用 DHCP</div>
+                                        <div class="text-muted">修改网关后，DHCP 会自动更新并重启服务</div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label">网关IP</label>
+                                    <input type="text" class="form-control" id="eth1-gateway-ip" value="${(config.gatewayIp || '').replace(/"/g, '&quot;')}" placeholder="192.168.50.1">
+                                    <div class="form-text">当前前缀：/${config.prefix || 24}</div>
+                                </div>
+
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div class="text-muted small">DHCP 服务</div>
+                                    <span class="badge bg-${config.dhcpActive ? 'success' : 'secondary'} bg-opacity-10 text-${config.dhcpActive ? 'success' : 'secondary'} small">
+                                        ${config.dhcpActive ? '运行中' : '未运行'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="modal-footer bg-light border-0 p-4">
+                                <div class="d-flex gap-2 w-100">
+                                    <button type="button" class="btn btn-outline-secondary flex-fill" data-bs-dismiss="modal">
+                                        <i class="bi bi-x-circle me-2"></i>取消
+                                    </button>
+                                    <button type="button" class="btn btn-primary flex-fill" onclick="saveEth1GatewaySettings('${interfaceName}')">
+                                        <i class="bi bi-check-circle me-2"></i>应用
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            const modal = new bootstrap.Modal(document.getElementById('eth1GatewayModal'));
+            modal.show();
+        }
+
+        async function saveEth1GatewaySettings(interfaceName) {
+            const input = document.getElementById('eth1-gateway-ip');
+            const gatewayIp = (input ? input.value : '').trim();
+            const ipRegex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+            if (!ipRegex.test(gatewayIp)) {
+                showErrorAlert('请输入正确的网关IP');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/eth1-gateway-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ interfaceName, gatewayIp })
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    showErrorAlert(data.error || '保存失败');
+                    return;
+                }
+
+                await showSuccessAlert(`已更新 ${interfaceName} 网关为 ${data.gatewayIp}`);
+
+                const modalEl = document.getElementById('eth1GatewayModal');
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                    setTimeout(() => {
+                        if (modalEl && modalEl.parentNode) modalEl.parentNode.removeChild(modalEl);
+                    }, 400);
+                }
+
+                refreshNetworkInterfaces();
+            } catch (error) {
+                console.error('保存eth1网关配置失败:', error);
+                showErrorAlert('保存eth1网关配置失败');
+            }
         }
         
         // 创建网络设置模态框

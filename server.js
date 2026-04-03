@@ -4111,6 +4111,240 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
         }
     });
 
+    app.get('/api/eth1-gateway-config', requireAuth, async (req, res) => {
+        try {
+            if (os.platform() !== 'linux') {
+                return res.status(200).json({ success: true, supported: false });
+            }
+
+            const interfaceName = (req.query.interface || 'eth1').toString();
+
+            const result = await getNetworkInterfaces();
+            if (!result.success) {
+                return res.status(500).json({ success: false, error: result.error || '获取网络接口失败' });
+            }
+
+            const iface = result.interfaces.find(i => i.name === interfaceName && !i.internal);
+            if (!iface) {
+                return res.status(404).json({ success: false, error: `网络接口不存在: ${interfaceName}` });
+            }
+
+            const netplanFile = '/etc/netplan/99-webpanel-eth1.yaml';
+            const dhcpConfFile = '/etc/dnsmasq.d/webpanel-eth1-dhcp.conf';
+            const dhcpServiceFile = '/etc/systemd/system/webpanel-eth1-dhcp.service';
+
+            const exists = async (p) => {
+                try {
+                    await fsPromises.access(p);
+                    return true;
+                } catch {
+                    return false;
+                }
+            };
+
+            let gatewayIp = null;
+            let prefix = 24;
+
+            if (await exists(netplanFile)) {
+                const content = await fsPromises.readFile(netplanFile, 'utf8');
+                const m = content.match(/-\s*([0-9.]+)\/(\d{1,2})/);
+                if (m) {
+                    gatewayIp = m[1];
+                    prefix = Number(m[2]) || 24;
+                }
+            }
+
+            if (!gatewayIp) {
+                try {
+                    const { stdout } = await ProcessUtils.execCommand(`ip -4 addr show ${interfaceName}`);
+                    const m = stdout.match(/inet\s+([0-9.]+)\/(\d{1,2})/);
+                    if (m) {
+                        gatewayIp = m[1];
+                        prefix = Number(m[2]) || 24;
+                    }
+                } catch {}
+            }
+
+            if (!gatewayIp) {
+                gatewayIp = '192.168.50.1';
+                prefix = 24;
+            }
+
+            let dhcpEnabled = false;
+            let dhcpActive = false;
+
+            if (await exists(dhcpServiceFile)) {
+                dhcpEnabled = true;
+                try {
+                    const { stdout } = await ProcessUtils.execCommand('systemctl is-active webpanel-eth1-dhcp');
+                    dhcpActive = stdout.trim() === 'active';
+                } catch {
+                    dhcpActive = false;
+                }
+            } else if (await exists(dhcpConfFile)) {
+                dhcpEnabled = true;
+            }
+
+            res.json({
+                success: true,
+                supported: true,
+                interfaceName,
+                gatewayIp,
+                prefix,
+                dhcpEnabled,
+                dhcpActive
+            });
+        } catch (error) {
+            console.error('获取eth1网关配置失败:', error);
+            res.status(500).json({ success: false, error: '获取eth1网关配置失败' });
+        }
+    });
+
+    app.post('/api/eth1-gateway-config', requireAuth, async (req, res) => {
+        try {
+            if (os.platform() !== 'linux') {
+                return res.status(200).json({ success: true, supported: false });
+            }
+
+            if (!process.getuid || process.getuid() !== 0) {
+                return res.status(403).json({ success: false, error: '需要root权限才能修改网关配置' });
+            }
+
+            const interfaceName = (req.body.interfaceName || 'eth1').toString();
+            const gatewayIp = (req.body.gatewayIp || '').toString().trim();
+
+            const ipRegex = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+            if (!ipRegex.test(gatewayIp)) {
+                return res.status(400).json({ success: false, error: '网关IP格式无效' });
+            }
+            const octets = gatewayIp.split('.').map(v => Number(v));
+            if (octets.length !== 4 || octets.some(v => Number.isNaN(v) || v < 0 || v > 255)) {
+                return res.status(400).json({ success: false, error: '网关IP格式无效' });
+            }
+
+            const result = await getNetworkInterfaces();
+            if (!result.success) {
+                return res.status(500).json({ success: false, error: result.error || '获取网络接口失败' });
+            }
+            const iface = result.interfaces.find(i => i.name === interfaceName && !i.internal);
+            if (!iface) {
+                return res.status(404).json({ success: false, error: `网络接口不存在: ${interfaceName}` });
+            }
+
+            const prefix = 24;
+            const netplanFile = '/etc/netplan/99-webpanel-eth1.yaml';
+            const dhcpConfFile = '/etc/dnsmasq.d/webpanel-eth1-dhcp.conf';
+            const dhcpServiceFile = '/etc/systemd/system/webpanel-eth1-dhcp.service';
+            const leaseDir = '/var/lib/misc';
+            const leaseFile = '/var/lib/misc/webpanel-eth1-dnsmasq.leases';
+
+            const base = `${octets[0]}.${octets[1]}.${octets[2]}.`;
+            const gwLast = octets[3];
+            let rangeStart = 10;
+            let rangeEnd = 200;
+            if (gwLast >= rangeStart && gwLast <= rangeEnd) {
+                rangeStart = 210;
+                rangeEnd = 250;
+            }
+
+            const dnsmasqBin = (await (async () => {
+                try {
+                    const { stdout } = await ProcessUtils.execCommand('command -v dnsmasq');
+                    const p = stdout.trim();
+                    if (p) return p;
+                } catch {}
+                return '/usr/sbin/dnsmasq';
+            })());
+
+            const netplanContent =
+`network:
+  version: 2
+  ethernets:
+    ${interfaceName}:
+      dhcp4: false
+      addresses:
+        - ${gatewayIp}/${prefix}
+`;
+
+            await fsPromises.writeFile(netplanFile, netplanContent, 'utf8');
+
+            try {
+                await ProcessUtils.execCommand('netplan apply');
+            } catch {
+                await ProcessUtils.execCommand(`ip link set ${interfaceName} up`);
+                await ProcessUtils.execCommand(`ip -4 addr flush dev ${interfaceName}`);
+                await ProcessUtils.execCommand(`ip addr add ${gatewayIp}/${prefix} dev ${interfaceName}`);
+            }
+
+            await fsPromises.mkdir('/etc/dnsmasq.d', { recursive: true });
+            await fsPromises.mkdir(leaseDir, { recursive: true });
+
+            const dhcpConf =
+`port=0
+interface=${interfaceName}
+bind-interfaces
+dhcp-authoritative
+dhcp-range=${base}${rangeStart},${base}${rangeEnd},255.255.255.0,12h
+dhcp-option=3,${gatewayIp}
+dhcp-option=6,1.1.1.1,8.8.8.8
+dhcp-leasefile=${leaseFile}
+`;
+
+            await fsPromises.writeFile(dhcpConfFile, dhcpConf, 'utf8');
+
+            try {
+                await ProcessUtils.execCommand(`${dnsmasqBin} --test --conf-file=${dhcpConfFile}`);
+            } catch (error) {
+                return res.status(400).json({ success: false, error: `dnsmasq配置自检失败: ${error.message}` });
+            }
+
+            const serviceContent =
+`[Unit]
+Description=Web Panel eth1 DHCP (dnsmasq)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${dnsmasqBin} --keep-in-foreground --conf-file=${dhcpConfFile}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+`;
+
+            await fsPromises.writeFile(dhcpServiceFile, serviceContent, 'utf8');
+
+            await ProcessUtils.execCommand('systemctl daemon-reload');
+            await ProcessUtils.execCommand('systemctl enable webpanel-eth1-dhcp');
+            await ProcessUtils.execCommand('systemctl restart webpanel-eth1-dhcp');
+
+            const active = await (async () => {
+                try {
+                    const { stdout } = await ProcessUtils.execCommand('systemctl is-active webpanel-eth1-dhcp');
+                    return stdout.trim() === 'active';
+                } catch {
+                    return false;
+                }
+            })();
+
+            res.json({
+                success: true,
+                supported: true,
+                interfaceName,
+                gatewayIp,
+                prefix,
+                dhcpEnabled: true,
+                dhcpActive: active,
+                dhcpRange: `${base}${rangeStart}-${base}${rangeEnd}`
+            });
+        } catch (error) {
+            console.error('保存eth1网关配置失败:', error);
+            res.status(500).json({ success: false, error: '保存eth1网关配置失败' });
+        }
+    });
+
     // 保存单个网络接口配置
     app.post('/api/network-interface-config', requireAuth, async (req, res) => {
         try {
