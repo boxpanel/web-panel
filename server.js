@@ -748,6 +748,9 @@ function getFfmpegBinary() {
         if (envBin && fs.existsSync(envBin)) {
             return envBin;
         }
+        if (os.platform() === 'linux' && fs.existsSync('/usr/lib/jellyfin-ffmpeg/ffmpeg')) {
+            return '/usr/lib/jellyfin-ffmpeg/ffmpeg';
+        }
         if (os.platform() === 'linux' && fs.existsSync('/usr/local/bin/ffmpeg')) {
             return '/usr/local/bin/ffmpeg';
         }
@@ -765,6 +768,9 @@ function getFfprobeBinary() {
         const envBin = process.env.MEDIAMTX_FFPROBE_BIN || process.env.FFPROBE_BIN;
         if (envBin && fs.existsSync(envBin)) {
             return envBin;
+        }
+        if (os.platform() === 'linux' && fs.existsSync('/usr/lib/jellyfin-ffmpeg/ffprobe')) {
+            return '/usr/lib/jellyfin-ffmpeg/ffprobe';
         }
         if (os.platform() === 'linux' && fs.existsSync('/usr/local/bin/ffprobe')) {
             return '/usr/local/bin/ffprobe';

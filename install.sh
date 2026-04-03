@@ -1070,6 +1070,69 @@ install_ffmpeg_standard() {
     esac
 }
 
+install_jellyfin_ffmpeg7_ubuntu_arm64() {
+    if [ "$(id -u)" -ne 0 ]; then
+        return 1
+    fi
+
+    if [ "$SYSTEM" != "debian" ]; then
+        return 1
+    fi
+
+    if [ "${ID:-}" != "ubuntu" ]; then
+        return 1
+    fi
+
+    if [ "${VERSION_CODENAME:-}" != "noble" ]; then
+        return 1
+    fi
+
+    ARCH=$(uname -m 2>/dev/null || echo unknown)
+    if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
+        return 1
+    fi
+
+    if ! command -v curl >/dev/null 2>&1; then
+        $PM install -y curl >/dev/null 2>&1 || true
+    fi
+    if ! command -v dpkg >/dev/null 2>&1; then
+        $PM install -y dpkg >/dev/null 2>&1 || true
+    fi
+
+    PAGE_URL="https://repo.jellyfin.org/?path=/ffmpeg/ubuntu/latest-7.x/arm64"
+    BASE_URL="https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/arm64"
+    FILE_NAME=$(curl -fsSL "$PAGE_URL" 2>/dev/null | grep -oE 'jellyfin-ffmpeg7_[^" <]*-noble_arm64\.deb' | head -n 1)
+    if [ -z "$FILE_NAME" ]; then
+        return 1
+    fi
+
+    TMP_DEB="/tmp/$FILE_NAME"
+    print_message "安装Jellyfin FFmpeg: $FILE_NAME"
+    if ! curl -fL "$BASE_URL/$FILE_NAME" -o "$TMP_DEB" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    dpkg -i "$TMP_DEB" >/dev/null 2>&1 || true
+    $PM -f install -y >/dev/null 2>&1 || true
+
+    if [ -x "/usr/lib/jellyfin-ffmpeg/ffmpeg" ]; then
+        print_success "jellyfin-ffmpeg7已安装: /usr/lib/jellyfin-ffmpeg/ffmpeg"
+        if /usr/lib/jellyfin-ffmpeg/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q "h264_rkmpp"; then
+            print_success "检测到h264_rkmpp编码器"
+        else
+            print_warning "未检测到h264_rkmpp编码器"
+        fi
+        if /usr/lib/jellyfin-ffmpeg/ffmpeg -hide_banner -filters 2>/dev/null | grep -q "scale_rkrga"; then
+            print_success "检测到scale_rkrga滤镜"
+        else
+            print_warning "未检测到scale_rkrga滤镜"
+        fi
+        return 0
+    fi
+
+    return 1
+}
+
 install_rkrga_from_source() {
     if [ "$(id -u)" -ne 0 ]; then
         return 1
@@ -1386,7 +1449,9 @@ install_media_tools() {
     print_message "检查并安装媒体工具..."
 
     if is_rockchip_device; then
-        if install_ffmpeg_rockchip_from_source; then
+        if install_jellyfin_ffmpeg7_ubuntu_arm64; then
+            :
+        elif install_ffmpeg_rockchip_from_source; then
             :
         else
             print_warning "ffmpeg-rockchip源码编译失败，尝试按MPP+FFmpeg(libmpp)方式安装..."
@@ -1904,6 +1969,8 @@ Environment=PORT=$PORT
 Environment=USERNAME=$USERNAME
 Environment=PASSWORD=$PASSWORD
 Environment=DB_DIR=$DB_DIR
+Environment=MEDIAMTX_FFMPEG_BIN=/usr/lib/jellyfin-ffmpeg/ffmpeg
+Environment=MEDIAMTX_FFPROBE_BIN=/usr/lib/jellyfin-ffmpeg/ffprobe
 Environment=HOME=$HOME
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
