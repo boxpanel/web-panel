@@ -837,12 +837,18 @@ install_dependencies() {
         NODE_VERSION=$(node --version | sed 's/v//')
         print_message "Node.js已安装: v$NODE_VERSION"
         
-        # 检查Node.js版本是否过低
-        if [ "$(printf '%s\n' "14.0.0" "$NODE_VERSION" | sort -V | head -n1)" = "14.0.0" ]; then
-            print_message "Node.js版本符合要求"
-        else
-            print_warning "Node.js版本过低 (当前: v$NODE_VERSION, 需要: >=14.0.0)，正在更新..."
+        NODE_MAJOR=$(printf "%s" "$NODE_VERSION" | cut -d. -f1)
+        if [ -n "$NODE_MAJOR" ] && [ "$NODE_MAJOR" -ge 23 ] 2>/dev/null; then
+            print_warning "Node.js版本过高(当前: v$NODE_VERSION)。为避免sqlite3等原生模块编译失败，将切换到Node 20 LTS..."
             install_nodejs
+        else
+            # 检查Node.js版本是否过低
+            if [ "$(printf '%s\n' "14.0.0" "$NODE_VERSION" | sort -V | head -n1)" = "14.0.0" ]; then
+                print_message "Node.js版本符合要求"
+            else
+                print_warning "Node.js版本过低 (当前: v$NODE_VERSION, 需要: >=14.0.0)，正在更新..."
+                install_nodejs
+            fi
         fi
     fi
     
@@ -1079,10 +1085,10 @@ install_basic_tools() {
     print_message "正在安装基础工具..."
     case "$SYSTEM" in
         "rhel")
-            $PM install -y curl wget git tar gzip sqlite >/dev/null 2>&1 || true
+            $PM install -y curl wget git tar gzip sqlite python3 python3-setuptools make gcc-c++ >/dev/null 2>&1 || true
             ;;
         "debian")
-            $PM install -y curl wget git tar gzip sqlite3 >/dev/null 2>&1 || true
+            $PM install -y curl wget git tar gzip sqlite3 python3 python3-setuptools make g++ >/dev/null 2>&1 || true
             ;;
         "suse")
             $PM install -y curl wget git tar gzip sqlite3 >/dev/null 2>&1 || true
@@ -1327,18 +1333,18 @@ install_nodejs() {
     case "$SYSTEM" in
         "rhel")
             if command -v dnf >/dev/null 2>&1; then
-                # 使用NodeSource仓库安装最新LTS
-                curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - >/dev/null 2>&1
+                # 使用NodeSource仓库安装Node 20 LTS（sqlite3 预编译与node-gyp兼容性更好）
+                curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
                 $PM install -y nodejs
             else
                 # CentOS 7等老版本
-                curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - >/dev/null 2>&1
+                curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
                 $PM install -y nodejs
             fi
             ;;
         "debian")
-            # 使用NodeSource仓库安装最新LTS
-            curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - >/dev/null 2>&1
+            # 使用NodeSource仓库安装Node 20 LTS（sqlite3 预编译与node-gyp兼容性更好）
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
             $PM install -y nodejs
             ;;
         "suse")
