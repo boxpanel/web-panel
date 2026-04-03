@@ -828,6 +828,8 @@ install_dependencies() {
     install_media_tools
 
     install_mediamtx || exit 1
+
+    configure_eth1_gateway_and_dhcp || true
     
     # 检查Node.js是否已安装
     if ! command -v node >/dev/null 2>&1; then
@@ -860,6 +862,82 @@ install_dependencies() {
         print_message "npm已安装: $(npm --version)"
     fi
     
+}
+
+configure_eth1_gateway_and_dhcp() {
+    if [ "$(uname -s 2>/dev/null)" != "Linux" ]; then
+        return 0
+    fi
+    if [ "$(id -u)" -ne 0 ]; then
+        print_warning "当前非root用户，跳过eth1网关与DHCP配置（需要写入/etc/netplan与/etc/dnsmasq.d）"
+        return 0
+    fi
+    if ! command -v ip >/dev/null 2>&1; then
+        return 1
+    fi
+    if ! ip link show eth1 >/dev/null 2>&1; then
+        print_warning "未检测到eth1网口，跳过eth1网关与DHCP配置"
+        return 0
+    fi
+
+    print_message "配置eth1静态网关IP与DHCP（192.168.50.1/24）..."
+
+    if command -v netplan >/dev/null 2>&1 && [ -d "/etc/netplan" ]; then
+        NETPLAN_FILE="/etc/netplan/99-webpanel-eth1.yaml"
+        if ! ip -4 addr show eth1 2>/dev/null | grep -q "192.168.50.1/24"; then
+            cat > "$NETPLAN_FILE" << 'EOF'
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    eth1:
+      dhcp4: false
+      addresses:
+        - 192.168.50.1/24
+EOF
+            netplan apply >/dev/null 2>&1 || {
+                print_warning "netplan apply失败，尝试使用ip命令临时配置eth1地址"
+                ip addr add 192.168.50.1/24 dev eth1 >/dev/null 2>&1 || true
+                ip link set eth1 up >/dev/null 2>&1 || true
+            }
+        fi
+    else
+        if ! ip -4 addr show eth1 2>/dev/null | grep -q "192.168.50.1/24"; then
+            ip addr add 192.168.50.1/24 dev eth1 >/dev/null 2>&1 || true
+        fi
+        ip link set eth1 up >/dev/null 2>&1 || true
+    fi
+
+    if [ "$SYSTEM" = "debian" ]; then
+        $PM install -y dnsmasq >/dev/null 2>&1 || true
+    fi
+    if ! command -v dnsmasq >/dev/null 2>&1; then
+        print_warning "dnsmasq未安装，无法在eth1上启用DHCP服务"
+        return 0
+    fi
+
+    DNSMASQ_CONF_DIR="/etc/dnsmasq.d"
+    if [ ! -d "$DNSMASQ_CONF_DIR" ]; then
+        mkdir -p "$DNSMASQ_CONF_DIR" >/dev/null 2>&1 || true
+    fi
+
+    DHCP_CONF="$DNSMASQ_CONF_DIR/webpanel-eth1-dhcp.conf"
+    cat > "$DHCP_CONF" << 'EOF'
+interface=eth1
+bind-interfaces
+dhcp-range=192.168.50.10,192.168.50.200,255.255.255.0,12h
+dhcp-option=3,192.168.50.1
+dhcp-option=6,1.1.1.1,8.8.8.8
+EOF
+
+    systemctl enable dnsmasq >/dev/null 2>&1 || true
+    systemctl restart dnsmasq >/dev/null 2>&1 || {
+        print_warning "dnsmasq重启失败，请检查是否与系统现有DNS/DHCP服务冲突"
+        return 0
+    }
+
+    print_success "eth1网关与DHCP已配置（eth1: 192.168.50.1/24, DHCP: 192.168.50.10-200）"
+    return 0
 }
 
 install_mediamtx() {
