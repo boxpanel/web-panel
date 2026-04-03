@@ -8400,6 +8400,14 @@ let radarVisibilityBound = false;
                     addCameraLogToUI('info', `收到远程媒体轨道: ${event.track ? event.track.kind : 'unknown'}`);
                     const remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
                     videoElement.srcObject = remoteStream;
+                    try {
+                        const receivers = rtspPlayer.getReceivers ? rtspPlayer.getReceivers() : [];
+                        for (const r of receivers) {
+                            if (!r || !r.track || r.track.kind !== 'video') continue;
+                            if ('playoutDelayHint' in r) r.playoutDelayHint = 0;
+                            if ('jitterBufferTarget' in r) r.jitterBufferTarget = 0;
+                        }
+                    } catch {}
                     videoElement.play().catch(() => {});
                 };
 

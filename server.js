@@ -318,28 +318,29 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         ].join(' ');
     }
 
-    const fpsFilter = (() => {
+    const pickedFps = (() => {
         const defFps = parseInt(process.env.MEDIAMTX_DEFAULT_FPS || '25', 10);
         const rawSrcFps = (typeof inputFps === 'number' && inputFps > 0) ? Math.round(inputFps) : null;
         const srcFps = (rawSrcFps && rawSrcFps >= 5 && rawSrcFps <= 120) ? rawSrcFps : null;
         const capFps = opts && typeof opts.capFps === 'number' && opts.capFps > 0 ? Math.round(opts.capFps) : (MEDIAMTX_MAX_FPS > 0 ? MEDIAMTX_MAX_FPS : (srcFps || defFps));
-        const picked = Math.max(1, Math.min((srcFps || defFps), capFps));
-        return `fps=${picked}`;
+        return Math.max(1, Math.min((srcFps || defFps), capFps));
     })();
+    const fpsFilter = `fps=${pickedFps}`;
 
     const maxW = opts && typeof opts.maxW === 'number' && opts.maxW > 0 ? opts.maxW : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
     const maxH = opts && typeof opts.maxH === 'number' && opts.maxH > 0 ? opts.maxH : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
     const useRga = Boolean(opts && opts.useRga);
-    const scaleToMaxRga = `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
+    const useHwDecode = !(opts && opts.useHwDecode === false);
+    const scaleToMaxRga = `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})':format=nv12`;
     const scaleToMaxCpu = `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
     const evenCrop = 'crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2';
     const evenScale = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
-    const vfChainRga = [scaleToMaxRga, evenCrop, 'format=nv12', fpsFilter].filter(Boolean).join(',');
-    const vfChainCpu = [scaleToMaxCpu, evenScale, 'format=nv12', fpsFilter].filter(Boolean).join(',');
+    const vfChainRga = [scaleToMaxRga, evenCrop].filter(Boolean).join(',');
+    const vfChainCpuHw = ['hwdownload', 'format=nv12', scaleToMaxCpu, evenScale, fpsFilter].filter(Boolean).join(',');
+    const vfChainCpuSw = [scaleToMaxCpu, evenScale, 'format=nv12', fpsFilter].filter(Boolean).join(',');
 
     const baseArgs = [
         ...baseInput,
-        '-c:v', 'hevc_rkmpp',
         '-i', inputRtsp,
         '-vf',
         '',
@@ -356,11 +357,18 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         output
     ];
 
+    if (useHwDecode) {
+        const insertAt = baseArgs.indexOf('-i');
+        if (insertAt >= 0) {
+            baseArgs.splice(insertAt, 0, '-c:v', 'hevc_rkmpp');
+        }
+    }
+
     const cmdCpu = (() => {
         const args = [...baseArgs];
         const vfIdx = args.indexOf('-vf');
         if (vfIdx >= 0 && vfIdx + 1 < args.length) {
-            args[vfIdx + 1] = quoteForShDouble(vfChainCpu);
+            args[vfIdx + 1] = quoteForShDouble(useHwDecode ? vfChainCpuHw : vfChainCpuSw);
         }
         return args.join(' ');
     })();
@@ -1315,7 +1323,7 @@ function deriveTranscodeOptions(videoInfo) {
     const capFps = is4k ? 15 : 25;
     const maxW = is4k ? 1920 : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
     const maxH = is4k ? 1080 : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
-    const gop = is4k ? 30 : 25;
+    const gop = Math.max(10, capFps);
 
     rkLog('info', `自动转码参数: 输入=${width || '?'}x${height || '?'}@${fps || '?'}fps → max=${maxW}x${maxH} capFps=${capFps} gop=${gop}`);
     return { maxW, maxH, capFps, gop };
