@@ -873,7 +873,7 @@ install_mediamtx() {
     ARCH=$(uname -m 2>/dev/null || echo unknown)
     ASSET_ARCH="linux_amd64"
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-        ASSET_ARCH="linux_arm64v8"
+        ASSET_ARCH="linux_arm64"
     fi
 
     if [ ! -x "/usr/local/bin/mediamtx" ]; then
@@ -882,8 +882,8 @@ install_mediamtx() {
             URL="${MEDIAMTX_DOWNLOAD_URL}"
         else
         ARCH_CANDIDATES="$ASSET_ARCH"
-        if [ "$ASSET_ARCH" = "linux_arm64v8" ]; then
-            ARCH_CANDIDATES="linux_arm64v8 linux_arm64"
+        if [ "$ASSET_ARCH" = "linux_arm64" ]; then
+            ARCH_CANDIDATES="linux_arm64 linux_arm64v8"
         fi
 
         URL=""
