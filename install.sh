@@ -911,8 +911,8 @@ install_mediamtx() {
         fi
         fi
         if [ -z "$URL" ]; then
-            print_warning "获取MediaMTX下载地址失败，跳过安装"
-            return 0
+            print_error "获取MediaMTX下载地址失败（无法从GitHub Releases定位资产）"
+            return 1
         fi
 
         TMP_DIR="/tmp/mediamtx-install"
@@ -930,6 +930,11 @@ install_mediamtx() {
             MIRRORS="DIRECT https://ghproxy.com/ https://ghproxy.net/"
         fi
         USED_URL=""
+        if command -v getent >/dev/null 2>&1; then
+            getent hosts github.com >/dev/null 2>&1 || print_warning "DNS无法解析 github.com"
+            getent hosts api.github.com >/dev/null 2>&1 || print_warning "DNS无法解析 api.github.com"
+            getent hosts objects.githubusercontent.com >/dev/null 2>&1 || print_warning "DNS无法解析 objects.githubusercontent.com（GitHub Releases资产常跳转到该域名）"
+        fi
 
         for B in $URL_BASES; do
             for P in $MIRRORS; do
@@ -953,6 +958,9 @@ install_mediamtx() {
                 fi
 
                 if ! tar -tzf "$ARCHIVE_PATH" >"$LIST_LOG" 2>&1; then
+                    BYTES=$(head -c 16 "$ARCHIVE_PATH" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n\r')
+                    CT=$(grep -i '^content-type:' "$HEADERS_LOG" 2>/dev/null | tail -n 1 | tr -d '\r')
+                    printf "[mediamtx] invalid archive: bytes=%s %s\n" "${BYTES:-unknown}" "${CT:-}" >>"$DOWNLOAD_LOG" 2>&1 || true
                     continue
                 fi
                 if ! grep -Eq '(^|/)mediamtx$' "$LIST_LOG" 2>/dev/null; then
