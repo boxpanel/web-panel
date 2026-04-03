@@ -58,7 +58,6 @@ const {
     verifyPassword 
 } = require('./modules/auth');
 
-const NetworkBridge = require('./modules/network-bridge');
 const NetworkConnectivity = require('./modules/network-connectivity');
 
 // 引入路由
@@ -1490,7 +1489,7 @@ function stopRockchipTranscoder() {
 }
 
 // 路由设置函数
-function setupRoutes(networkBridge, networkConnectivity) {
+function setupRoutes(networkConnectivity) {
     // 安装检查中间件将在 startServer 中设置
 
     // 静态文件路由
@@ -1938,53 +1937,14 @@ function setupRoutes(networkBridge, networkConnectivity) {
                 return res.status(500).json({ error: '获取网络接口信息失败' });
             }
             
-            // 获取所有已存在的桥接，提取已使用的接口
-            const existingBridges = await db.getAllBridges();
-            const usedInterfaces = new Set();
-            
-            existingBridges.forEach(bridge => {
-                if (bridge.target_interfaces && Array.isArray(bridge.target_interfaces)) {
-                    bridge.target_interfaces.forEach(interfaceName => {
-                        usedInterfaces.add(interfaceName);
-                    });
-                }
-            });
-            
             // 过滤并格式化网络接口信息
             const formattedInterfaces = await Promise.all(
                 interfaces
                     .filter(iface => iface.name && !iface.internal) // 排除内部接口
                     .map(async (iface) => {
-                        // 检查接口是否被桥接使用
-                        const isBridged = usedInterfaces.has(iface.name);
-                        
-                        // 获取桥接模式状态
-                        const bridgeModeEnabled = await db.getConfig(`bridge_mode_${iface.name}`) === 'true';
-                        
-                        // 如果启用桥接模式，获取连接设备
-                        let connectedDevices = [];
-                        if (bridgeModeEnabled && os.platform() === 'linux') {
-                            const { exec } = require('child_process');
-                            try {
-                                await new Promise((resolve, reject) => {
-                                    exec(`arp -a | grep -E "([0-9]{1,3}\.){3}[0-9]{1,3}" | awk '{print $2}' | tr -d '()' | head -5`, (error, stdout, stderr) => {
-                                        if (!error && stdout.trim()) {
-                                            const ips = stdout.trim().split('\n').filter(ip => ip && ip !== '127.0.0.1');
-                                            connectedDevices = ips;
-                                        }
-                                        resolve();
-                                    });
-                                });
-                            } catch (error) {
-                                console.error('获取连接设备失败:', error);
-                            }
-                        }
-                        
                         // 检测IP模式
                         let ipMode = 'dhcp'; // 默认为DHCP
                         try {
-                            const { exec } = require('child_process');
-                            const util = require('util');
                             const execAsync = ProcessUtils.execCommand;
                             
                             // 根据操作系统选择不同的检测方法
@@ -2052,9 +2012,6 @@ function setupRoutes(networkBridge, networkConnectivity) {
                         
                         // 摄像头功能已移除
                         const cameraEnabled = false;
-                        
-                        // 检查接口是否已被桥接使用
-                        const isUsed = usedInterfaces.has(iface.name);
 
                         return {
                             name: iface.name,
@@ -2065,11 +2022,7 @@ function setupRoutes(networkBridge, networkConnectivity) {
                             operstate: iface.status,
                             status: iface.status,
                             ipMode: ipMode,
-                            cameraEnabled: cameraEnabled,
-                            bridgeMode: bridgeModeEnabled,
-                            connectedDevices: connectedDevices,
-                            isUsed: isUsed,
-                            isBridged: isBridged // 添加桥接状态标识
+                            cameraEnabled: cameraEnabled
                         };
                     })
             );
@@ -2120,482 +2073,6 @@ function setupRoutes(networkBridge, networkConnectivity) {
     });
 
     // 获取主机网络配置（用于自动填充静态IP设置）
-    app.get('/api/host-network-config', requireAuth, async (req, res) => {
-        try {
-            console.log('开始获取主机网络配置...');
-            const networkInterfaces = os.networkInterfaces();
-            console.log('可用网络接口:', Object.keys(networkInterfaces));
-            
-            let primaryInterface = null;
-            let hostConfig = {
-                ip: '',
-                netmask: '',
-                gateway: ''
-            };
-
-            // 查找主要的网络接口（非回环、有IP地址的接口）
-            // 优先选择本地网络接口，避免选择VPN接口
-            const interfaceEntries = Object.entries(networkInterfaces);
-            const localInterfaces = [];
-            const vpnInterfaces = [];
-            
-            for (const [name, interfaces] of interfaceEntries) {
-                console.log(`检查接口 ${name}:`, interfaces);
-                
-                if (name.toLowerCase().includes('loopback') || name.toLowerCase().includes('lo')) {
-                    console.log(`跳过回环接口: ${name}`);
-                    continue;
-                }
-                
-                // 检查是否为VPN接口
-                const isVpnInterface = name.toLowerCase().includes('tailscale') || 
-                                     name.toLowerCase().includes('vmware') || 
-                                     name.toLowerCase().includes('virtualbox') ||
-                                     name.toLowerCase().includes('vpn') ||
-                                     name.toLowerCase().includes('tunnel');
-                
-                for (const iface of interfaces) {
-                    console.log(`检查接口 ${name} 的配置:`, iface);
-                    if (iface.family === 'IPv4' && !iface.internal && iface.address !== '127.0.0.1') {
-                        const interfaceInfo = {
-                            name: name,
-                            ...iface
-                        };
-                        
-                        if (isVpnInterface) {
-                            console.log(`发现VPN接口: ${name}, IP: ${iface.address}`);
-                            vpnInterfaces.push(interfaceInfo);
-                        } else {
-                            console.log(`发现本地接口: ${name}, IP: ${iface.address}`);
-                            localInterfaces.push(interfaceInfo);
-                        }
-                    }
-                }
-            }
-            
-            // 优先选择本地接口，如果没有本地接口则选择VPN接口
-            const availableInterfaces = localInterfaces.length > 0 ? localInterfaces : vpnInterfaces;
-            if (availableInterfaces.length > 0) {
-                primaryInterface = availableInterfaces[0];
-                hostConfig.ip = primaryInterface.address;
-                hostConfig.netmask = primaryInterface.netmask;
-                console.log(`选择主要接口: ${primaryInterface.name}, IP: ${primaryInterface.address}, 子网掩码: ${primaryInterface.netmask}`);
-            } else {
-                console.log('未找到可用的网络接口');
-            }
-
-            // 获取默认网关
-            try {
-                console.log('开始获取默认网关...');
-                if (os.platform() === 'win32') {
-                    console.log('检测到Windows系统，使用route命令获取默认网关');
-                    // Windows: 使用route命令获取默认网关
-                    const result = await execAsync('route print 0.0.0.0');
-                    console.log('route命令执行结果:', result.stdout.substring(0, 500) + '...');
-                    const lines = result.stdout.split('\n');
-                    
-                    for (const line of lines) {
-                        if (line.includes('0.0.0.0') && line.includes('0.0.0.0')) {
-                            console.log('找到默认路由行:', line);
-                            const parts = line.trim().split(/\s+/);
-                            console.log('路由行解析结果:', parts);
-                            if (parts.length >= 3) {
-                                const gateway = parts[2];
-                                console.log('提取的网关地址:', gateway);
-                                // 验证是否为有效IP地址
-                                if (/^(\d{1,3}\.){3}\d{1,3}$/.test(gateway) && gateway !== '0.0.0.0') {
-                                    hostConfig.gateway = gateway;
-                                    console.log('成功设置网关地址:', gateway);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Linux/macOS: 使用ip route或route命令
-                    try {
-                        const result = await execAsync('ip route show default');
-                        const match = result.stdout.match(/default via (\d+\.\d+\.\d+\.\d+)/);
-                        if (match) {
-                            hostConfig.gateway = match[1];
-                        }
-                    } catch (error) {
-                        // 如果ip命令失败，尝试route命令
-                        const result = await execAsync('route -n get default');
-                        const match = result.stdout.match(/gateway: (\d+\.\d+\.\d+\.\d+)/);
-                        if (match) {
-                            hostConfig.gateway = match[1];
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn('获取默认网关失败:', error.message);
-                // 如果无法获取网关，尝试推测
-                if (hostConfig.ip && hostConfig.netmask) {
-                    const ipParts = hostConfig.ip.split('.');
-                    const maskParts = hostConfig.netmask.split('.');
-                    
-                    // 计算网络地址并推测网关（通常是网络地址+1）
-                    const networkParts = ipParts.map((part, index) => 
-                        parseInt(part) & parseInt(maskParts[index])
-                    );
-                    networkParts[3] = networkParts[3] + 1;
-                    hostConfig.gateway = networkParts.join('.');
-                }
-            }
-
-            console.log('获取主机网络配置:', hostConfig);
-            res.json({
-                success: true,
-                config: hostConfig,
-                interface: primaryInterface ? primaryInterface.name : null
-            });
-
-        } catch (error) {
-            console.error('获取主机网络配置失败:', error);
-            res.status(500).json({ 
-                success: false,
-                error: '获取主机网络配置失败',
-                config: {
-                    ip: '',
-                    netmask: '',
-                    gateway: ''
-                }
-            });
-        }
-    });
-
-    // 获取主机网络配置（测试端点，无需认证）
-    app.get('/api/test/host-network-config', async (req, res) => {
-        try {
-            console.log('开始获取主机网络配置（测试端点）...');
-            const networkInterfaces = os.networkInterfaces();
-            console.log('可用网络接口:', Object.keys(networkInterfaces));
-            
-            let primaryInterface = null;
-            let hostConfig = {
-                ip: '',
-                netmask: '',
-                gateway: ''
-            };
-
-            // 查找主要的网络接口（非回环、有IP地址的接口）
-            // 优先选择本地网络接口，避免选择VPN接口
-            const interfaceEntries = Object.entries(networkInterfaces);
-            const localInterfaces = [];
-            const vpnInterfaces = [];
-            
-            for (const [name, interfaces] of interfaceEntries) {
-                console.log(`检查接口 ${name}:`, interfaces);
-                
-                if (name.toLowerCase().includes('loopback') || name.toLowerCase().includes('lo')) {
-                    console.log(`跳过回环接口: ${name}`);
-                    continue;
-                }
-                
-                // 检查是否为VPN接口
-                const isVpnInterface = name.toLowerCase().includes('tailscale') || 
-                                     name.toLowerCase().includes('vmware') || 
-                                     name.toLowerCase().includes('virtualbox') ||
-                                     name.toLowerCase().includes('vpn') ||
-                                     name.toLowerCase().includes('tunnel');
-                
-                for (const iface of interfaces) {
-                    console.log(`检查接口 ${name} 的配置:`, iface);
-                    if (iface.family === 'IPv4' && !iface.internal && iface.address !== '127.0.0.1') {
-                        const interfaceInfo = {
-                            name: name,
-                            ...iface
-                        };
-                        
-                        if (isVpnInterface) {
-                            console.log(`发现VPN接口: ${name}, IP: ${iface.address}`);
-                            vpnInterfaces.push(interfaceInfo);
-                        } else {
-                            console.log(`发现本地接口: ${name}, IP: ${iface.address}`);
-                            localInterfaces.push(interfaceInfo);
-                        }
-                    }
-                }
-            }
-            
-            // 优先选择本地接口，如果没有本地接口则选择VPN接口
-            const availableInterfaces = localInterfaces.length > 0 ? localInterfaces : vpnInterfaces;
-            if (availableInterfaces.length > 0) {
-                primaryInterface = availableInterfaces[0];
-                hostConfig.ip = primaryInterface.address;
-                hostConfig.netmask = primaryInterface.netmask;
-                console.log(`选择主要接口: ${primaryInterface.name}, IP: ${primaryInterface.address}, 子网掩码: ${primaryInterface.netmask}`);
-            } else {
-                console.log('未找到可用的网络接口');
-            }
-
-            // 获取默认网关
-            try {
-                console.log('开始获取默认网关...');
-                if (os.platform() === 'win32') {
-                    console.log('检测到Windows系统，使用route命令获取默认网关');
-                    // Windows: 使用route命令获取默认网关
-                    const result = await execAsync('route print 0.0.0.0');
-                    console.log('route命令执行结果:', result.stdout.substring(0, 500) + '...');
-                    const lines = result.stdout.split('\n');
-                    
-                    for (const line of lines) {
-                        if (line.includes('0.0.0.0') && line.includes('0.0.0.0')) {
-                            console.log('找到默认路由行:', line);
-                            const parts = line.trim().split(/\s+/);
-                            console.log('路由行解析结果:', parts);
-                            if (parts.length >= 3) {
-                                const gateway = parts[2];
-                                console.log('提取的网关地址:', gateway);
-                                // 验证是否为有效IP地址
-                                if (/^(\d{1,3}\.){3}\d{1,3}$/.test(gateway) && gateway !== '0.0.0.0') {
-                                    hostConfig.gateway = gateway;
-                                    console.log('成功设置网关地址:', gateway);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Linux/macOS: 使用ip route或route命令
-                    try {
-                        const result = await execAsync('ip route show default');
-                        const match = result.stdout.match(/default via (\d+\.\d+\.\d+\.\d+)/);
-                        if (match) {
-                            hostConfig.gateway = match[1];
-                        }
-                    } catch (error) {
-                        // 如果ip命令失败，尝试route命令
-                        const result = await execAsync('route -n get default');
-                        const match = result.stdout.match(/gateway: (\d+\.\d+\.\d+\.\d+)/);
-                        if (match) {
-                            hostConfig.gateway = match[1];
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn('获取默认网关失败:', error.message);
-                // 如果无法获取网关，尝试推测
-                if (hostConfig.ip && hostConfig.netmask) {
-                    const ipParts = hostConfig.ip.split('.');
-                    const maskParts = hostConfig.netmask.split('.');
-                    
-                    // 计算网络地址并推测网关（通常是网络地址+1）
-                    const networkParts = ipParts.map((part, index) => 
-                        parseInt(part) & parseInt(maskParts[index])
-                    );
-                    networkParts[3] = networkParts[3] + 1;
-                    hostConfig.gateway = networkParts.join('.');
-                }
-            }
-
-            console.log('获取主机网络配置（测试端点）:', hostConfig);
-            res.json({
-                success: true,
-                config: hostConfig,
-                interface: primaryInterface ? primaryInterface.name : null,
-                debug: {
-                    localInterfaces: localInterfaces.map(i => ({ name: i.name, ip: i.address })),
-                    vpnInterfaces: vpnInterfaces.map(i => ({ name: i.name, ip: i.address })),
-                    selectedInterface: primaryInterface ? primaryInterface.name : null
-                }
-            });
-
-        } catch (error) {
-            console.error('获取主机网络配置失败（测试端点）:', error);
-            res.status(500).json({ 
-                success: false,
-                error: '获取主机网络配置失败',
-                config: {
-                    ip: '',
-                    netmask: '',
-                    gateway: ''
-                }
-            });
-        }
-    });
-
-    // ==================== 网络桥接 API ====================
-    
-    // 创建桥接
-    app.post('/api/network-bridge/create', requireAuth, async (req, res) => {
-        try {
-            const { bridgeName, targetInterfaces, bridgeType = 'bridge', ipConfig } = req.body;
-            
-            // 验证必填字段
-            if (!bridgeName || !targetInterfaces || !Array.isArray(targetInterfaces) || targetInterfaces.length === 0) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: '缺少必填字段或目标接口为空' 
-                });
-            }
-            
-            // 验证桥接名称格式
-            if (!/^[a-zA-Z0-9_-]+$/.test(bridgeName)) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: '桥接名称只能包含字母、数字、下划线和连字符' 
-                });
-            }
-            
-            // 验证IP配置
-            if (ipConfig && ipConfig.type === 'static') {
-                if (!ipConfig.staticIp || !ipConfig.staticIp.address || !ipConfig.staticIp.netmask || !ipConfig.staticIp.gateway) {
-                    return res.status(400).json({ 
-                        success: false, 
-                        error: '静态IP配置不完整' 
-                    });
-                }
-                
-                // 简单的IP地址格式验证
-                const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-                if (!ipRegex.test(ipConfig.staticIp.address) || 
-                    !ipRegex.test(ipConfig.staticIp.netmask) || 
-                    !ipRegex.test(ipConfig.staticIp.gateway)) {
-                    return res.status(400).json({ 
-                        success: false, 
-                        error: 'IP地址格式不正确' 
-                    });
-                }
-            }
-            
-            const result = await networkBridge.createBridge(bridgeName, targetInterfaces, bridgeType, ipConfig);
-            
-            if (result.success) {
-                res.json({ 
-                    success: true, 
-                    message: '桥接创建成功',
-                    bridge: result.bridge
-                });
-            } else {
-                res.status(500).json({ 
-                    success: false, 
-                    error: result.error 
-                });
-            }
-        } catch (error) {
-            console.error('创建桥接失败:', error);
-            res.status(500).json({ 
-                success: false, 
-                error: '创建桥接失败: ' + error.message 
-            });
-        }
-    });
-    
-    // 获取桥接列表
-    app.get('/api/network-bridge/list', requireAuth, async (req, res) => {
-        try {
-            const result = await networkBridge.listBridges();
-            
-            if (result.success) {
-                res.json({ 
-                    success: true, 
-                    bridges: result.bridges 
-                });
-            } else {
-                res.status(500).json({ 
-                    success: false, 
-                    error: result.error 
-                });
-            }
-        } catch (error) {
-            console.error('获取桥接列表失败:', error);
-            res.status(500).json({ 
-                success: false, 
-                error: '获取桥接列表失败: ' + error.message 
-            });
-        }
-    });
-    
-    // 删除桥接
-    app.delete('/api/network-bridge/:bridgeName', requireAuth, async (req, res) => {
-        try {
-            const { bridgeName } = req.params;
-            
-            if (!bridgeName) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: '缺少桥接名称' 
-                });
-            }
-            
-            const result = await networkBridge.deleteBridge(bridgeName);
-            
-            if (result.success) {
-                res.json({ 
-                    success: true, 
-                    message: '桥接删除成功' 
-                });
-            } else {
-                res.status(500).json({ 
-                    success: false, 
-                    error: result.error 
-                });
-            }
-        } catch (error) {
-            console.error('删除桥接失败:', error);
-            res.status(500).json({ 
-                success: false, 
-                error: '删除桥接失败: ' + error.message 
-            });
-        }
-    });
-
-    // 获取桥接详情
-    app.get('/api/network-bridge/details/:bridgeName', requireAuth, async (req, res) => {
-        try {
-            const { bridgeName } = req.params;
-            
-            if (!bridgeName) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: '缺少桥接名称' 
-                });
-            }
-            
-            // 获取桥接状态
-            const statusResult = await networkBridge.checkBridgeStatus(bridgeName);
-            
-            if (!statusResult.success) {
-                return res.status(404).json({ 
-                    success: false, 
-                    error: '桥接不存在或获取状态失败' 
-                });
-            }
-            
-            // 获取桥接详细信息
-            const bridges = await networkBridge.getActiveBridges();
-            const bridge = bridges.find(b => b.id === bridgeName || b.name === bridgeName);
-            
-            if (!bridge) {
-                return res.status(404).json({ 
-                    success: false, 
-                    error: '桥接不存在' 
-                });
-            }
-            
-            // 返回详细信息
-            res.json({ 
-                success: true, 
-                bridge: {
-                    ...bridge,
-                    status: statusResult.status || bridge.status,
-                    details: statusResult.details || {}
-                }
-            });
-            
-        } catch (error) {
-            console.error('获取桥接详情失败:', error);
-            res.status(500).json({ 
-                success: false, 
-                error: '获取桥接详情失败: ' + error.message 
-            });
-        }
-    });
-
-
-
     // 获取单个摄像头状态API
     app.get('/api/camera/status/:interfaceName', requireAuth, async (req, res) => {
         try {
@@ -4747,22 +4224,11 @@ async function startServer() {
         // 设置安装检查中间件
         app.use(checkInstallation(db));
         
-        // 创建网络桥接实例
-        const networkBridge = new NetworkBridge(db);
-        
         // 创建网络连通性测试实例
         const networkConnectivity = new NetworkConnectivity();
         
         // 设置路由
-        setupRoutes(networkBridge, networkConnectivity);
-        
-        // 初始化网络桥接模块，从数据库加载桥接数据
-        try {
-            await networkBridge.initialize();
-            console.log('网络桥接模块初始化完成');
-        } catch (error) {
-            console.error('网络桥接模块初始化失败:', error);
-        }
+        setupRoutes(networkConnectivity);
         
         // 启动会话清理定时器
         setInterval(() => {
