@@ -963,7 +963,7 @@ install_mediamtx() {
                     printf "[mediamtx] invalid archive: bytes=%s %s\n" "${BYTES:-unknown}" "${CT:-}" >>"$DOWNLOAD_LOG" 2>&1 || true
                     continue
                 fi
-                if ! grep -Eq '(^|/)mediamtx$' "$LIST_LOG" 2>/dev/null; then
+                if ! grep -Eq '(^|/|\./)mediamtx$' "$LIST_LOG" 2>/dev/null; then
                     continue
                 fi
                 USED_URL="$CAND"
