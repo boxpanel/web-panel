@@ -32,6 +32,16 @@ LOG_FILE="/tmp/web-panel-install.log"
 BACKUP_DIR="/tmp/web-panel-backup-$(date +%Y%m%d_%H%M%S)"
 INSTALL_SUCCESS=false
 
+SCRIPT_DIR=""
+if [ -n "${0:-}" ] && [ -f "$0" ]; then
+    SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo "")
+fi
+OFFLINE_DIR="${SCRIPT_DIR}/offline"
+WEB_PANEL_OFFLINE_ONLY="${WEB_PANEL_OFFLINE_ONLY:-0}"
+if [ -n "$SCRIPT_DIR" ] && [ -d "$OFFLINE_DIR" ]; then
+    WEB_PANEL_OFFLINE_ONLY="1"
+fi
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -878,26 +888,45 @@ install_mediamtx() {
 
     if [ ! -x "/usr/local/bin/mediamtx" ]; then
         print_message "正在安装MediaMTX..."
-        URL=$(curl -fsSL -H "User-Agent: web-panel-installer" https://api.github.com/repos/bluenviron/mediamtx/releases/latest 2>/dev/null | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
-        if [ -z "$URL" ]; then
-            EFFECTIVE=$(curl -fsSLI -o /dev/null -w '%{url_effective}' -L -H "User-Agent: web-panel-installer" https://github.com/bluenviron/mediamtx/releases/latest 2>/dev/null)
-            TAG=$(printf "%s" "$EFFECTIVE" | sed 's|.*/tag/||' | tr -d '\r\n')
-            if [ -n "$TAG" ]; then
-                URL="https://github.com/bluenviron/mediamtx/releases/download/${TAG}/mediamtx_${TAG}_${ASSET_ARCH}.tar.gz"
-            fi
+        LOCAL_TGZ=""
+        if [ -n "$SCRIPT_DIR" ] && [ -d "$OFFLINE_DIR" ]; then
+            LOCAL_TGZ=$(ls -1 "$OFFLINE_DIR"/mediamtx_*_"$ASSET_ARCH".tar.gz 2>/dev/null | sort -V | tail -n 1)
         fi
-        if [ -z "$URL" ]; then
-            print_warning "获取MediaMTX下载地址失败，跳过安装"
-            return 0
+
+        URL=""
+        if [ -n "$LOCAL_TGZ" ]; then
+            print_message "安装MediaMTX(离线): $(basename "$LOCAL_TGZ")"
+        else
+            if [ "$WEB_PANEL_OFFLINE_ONLY" = "1" ]; then
+                print_error "离线安装已启用，但未找到MediaMTX安装包。请将 mediamtx_*_${ASSET_ARCH}.tar.gz 放到: $OFFLINE_DIR"
+                return 1
+            fi
+
+            URL=$(curl -fsSL -H "User-Agent: web-panel-installer" https://api.github.com/repos/bluenviron/mediamtx/releases/latest 2>/dev/null | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
+            if [ -z "$URL" ]; then
+                EFFECTIVE=$(curl -fsSLI -o /dev/null -w '%{url_effective}' -L -H "User-Agent: web-panel-installer" https://github.com/bluenviron/mediamtx/releases/latest 2>/dev/null)
+                TAG=$(printf "%s" "$EFFECTIVE" | sed 's|.*/tag/||' | tr -d '\r\n')
+                if [ -n "$TAG" ]; then
+                    URL="https://github.com/bluenviron/mediamtx/releases/download/${TAG}/mediamtx_${TAG}_${ASSET_ARCH}.tar.gz"
+                fi
+            fi
+            if [ -z "$URL" ]; then
+                print_warning "获取MediaMTX下载地址失败，跳过安装"
+                return 0
+            fi
         fi
 
         TMP_DIR="/tmp/mediamtx-install"
         rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
         mkdir -p "$TMP_DIR" || return 0
 
-        if ! curl -fsSL -o "$TMP_DIR/mediamtx.tar.gz" "$URL"; then
-            print_warning "下载MediaMTX失败，跳过安装"
-            return 0
+        if [ -n "$LOCAL_TGZ" ]; then
+            cp -f "$LOCAL_TGZ" "$TMP_DIR/mediamtx.tar.gz" >/dev/null 2>&1 || true
+        else
+            if ! curl -fsSL -o "$TMP_DIR/mediamtx.tar.gz" "$URL"; then
+                print_warning "下载MediaMTX失败，跳过安装"
+                return 0
+            fi
         fi
 
         if ! tar -xzf "$TMP_DIR/mediamtx.tar.gz" -C "$TMP_DIR"; then
@@ -1092,21 +1121,37 @@ install_jellyfin_ffmpeg7_ubuntu_arm64() {
         $PM install -y dpkg >/dev/null 2>&1 || true
     fi
 
-    PAGE_URL="https://repo.jellyfin.org/?path=/ffmpeg/ubuntu/latest-7.x/arm64"
-    BASE_URL="https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/arm64"
-    FILE_NAME=$(curl -fsSL "$PAGE_URL" 2>/dev/null | grep -oE "jellyfin-ffmpeg7_[^\" <>'>]*-noble_arm64\.deb" | head -n 1)
-    if [ -z "$FILE_NAME" ]; then
-        return 1
-    fi
-    FILE_NAME=$(printf "%s" "$FILE_NAME" | tr -d "'>" | tr -d '\r\n')
-    if [ -z "$FILE_NAME" ]; then
-        return 1
+    LOCAL_DEB=""
+    if [ -n "$SCRIPT_DIR" ] && [ -d "$OFFLINE_DIR" ]; then
+        LOCAL_DEB=$(ls -1 "$OFFLINE_DIR"/jellyfin-ffmpeg7_*_noble_arm64.deb 2>/dev/null | sort -V | tail -n 1)
     fi
 
-    TMP_DEB="/tmp/$FILE_NAME"
-    print_message "安装Jellyfin FFmpeg: $FILE_NAME"
-    if ! curl -fL "$BASE_URL/$FILE_NAME" -o "$TMP_DEB" >/dev/null 2>&1; then
-        return 1
+    TMP_DEB=""
+    if [ -n "$LOCAL_DEB" ]; then
+        TMP_DEB="$LOCAL_DEB"
+        print_message "安装Jellyfin FFmpeg(离线): $(basename "$LOCAL_DEB")"
+    else
+        if [ "$WEB_PANEL_OFFLINE_ONLY" = "1" ]; then
+            print_error "离线安装已启用，但未找到Jellyfin FFmpeg安装包。请将 jellyfin-ffmpeg7_*_noble_arm64.deb 放到: $OFFLINE_DIR"
+            return 1
+        fi
+
+        PAGE_URL="https://repo.jellyfin.org/?path=/ffmpeg/ubuntu/latest-7.x/arm64"
+        BASE_URL="https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/arm64"
+        FILE_NAME=$(curl -fsSL "$PAGE_URL" 2>/dev/null | grep -oE "jellyfin-ffmpeg7_[^\" <>'>]*-noble_arm64\.deb" | head -n 1)
+        if [ -z "$FILE_NAME" ]; then
+            return 1
+        fi
+        FILE_NAME=$(printf "%s" "$FILE_NAME" | tr -d "'>" | tr -d '\r\n')
+        if [ -z "$FILE_NAME" ]; then
+            return 1
+        fi
+
+        TMP_DEB="/tmp/$FILE_NAME"
+        print_message "安装Jellyfin FFmpeg: $FILE_NAME"
+        if ! curl -fL "$BASE_URL/$FILE_NAME" -o "$TMP_DEB" >/dev/null 2>&1; then
+            return 1
+        fi
     fi
 
     JELLYFIN_FFMPEG_BIN=""
@@ -1119,8 +1164,10 @@ install_jellyfin_ffmpeg7_ubuntu_arm64() {
     export JELLYFIN_FFPROBE_BIN
 
     dpkg -i "$TMP_DEB" >>"$LOG_FILE" 2>&1 || true
-    $PM -f install -y >>"$LOG_FILE" 2>&1 || true
-    dpkg -i "$TMP_DEB" >>"$LOG_FILE" 2>&1 || true
+    if [ "$WEB_PANEL_OFFLINE_ONLY" != "1" ]; then
+        $PM -f install -y >>"$LOG_FILE" 2>&1 || true
+        dpkg -i "$TMP_DEB" >>"$LOG_FILE" 2>&1 || true
+    fi
 
     if [ -z "$JELLYFIN_FFMPEG_BIN" ] || [ ! -x "$JELLYFIN_FFMPEG_BIN" ]; then
         if [ -x "/usr/lib/jellyfin-ffmpeg/ffmpeg" ]; then
