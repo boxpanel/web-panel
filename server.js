@@ -330,6 +330,7 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
     const maxW = opts && typeof opts.maxW === 'number' && opts.maxW > 0 ? opts.maxW : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
     const maxH = opts && typeof opts.maxH === 'number' && opts.maxH > 0 ? opts.maxH : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
     const useRga = Boolean(opts && opts.useRga);
+    const requireFullHardware = Boolean(opts && opts.requireFullHardware);
     const scaleToMaxRga = `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})':format=nv12`;
     const scaleToMaxCpu = `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
     const evenCrop = 'crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2';
@@ -383,6 +384,9 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         return args.join(' ');
     })();
 
+    if (requireFullHardware) {
+        return cmdRga;
+    }
     return `/bin/sh -lc ${quoteForShSingle(`${cmdRga}; exec ${cmdCpu}`)}`;
 }
 
@@ -3633,7 +3637,14 @@ app.post('/api/camera/mediamtx/stream', requireAuth, async (req, res) => {
             if (sourceCodec === 'h265') {
                 const opts = deriveTranscodeOptions(videoInfo);
                 const hasRga = await checkFfmpegRgaSupport();
-                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null), opts: { ...opts, useRga: hasRga } });
+                const requireFullHardware = String(process.env.MEDIAMTX_REQUIRE_FULL_HW || '') === '1';
+                if (requireFullHardware && !hasRga) {
+                    return res.status(500).json({ error: '已启用全硬件模式(MEDIAMTX_REQUIRE_FULL_HW=1)，但未检测到RGA滤镜(scale_rkrga/vpp_rkrga)。请安装支持rkrga的ffmpeg后重试。' });
+                }
+                if (requireFullHardware) {
+                    rkLog('info', '全硬件模式已启用：将仅使用RKMpp+RGA链路，禁用CPU回退');
+                }
+                const cmd = buildMediamtxRunOnDemandCommand({ pathName, inputRtsp: rtspUrl, codec: 'h265', inputFps: (typeof videoInfo.fps === 'number' ? videoInfo.fps : null), opts: { ...opts, useRga: hasRga, requireFullHardware } });
                 mediamtxActivePathConfigs.set(pathName, {
                     runOnInit: cmd,
                     runOnInitRestart: true,
