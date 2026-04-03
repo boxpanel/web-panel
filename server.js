@@ -279,6 +279,11 @@ function sanitizePathName(name) {
     return raw.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function quoteForShDouble(value) {
+    const s = String(value ?? '');
+    return `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
+}
+
 function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps, opts }) {
     const ffmpegBin = getFfmpegBinary();
     const baseInput = [
@@ -329,7 +334,7 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         ...baseInput,
         '-c:v', 'hevc_rkmpp',
         '-i', inputRtsp,
-        '-vf', vfChain,
+        '-vf', quoteForShDouble(vfChain),
         '-vsync', 'drop',
         '-an',
         '-c:v', 'h264_rkmpp',
