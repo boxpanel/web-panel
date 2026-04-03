@@ -924,7 +924,11 @@ install_mediamtx() {
         HEADERS_LOG="$TMP_DIR/headers.log"
 
         URL_BASES="$URL ${URL}?download=1"
-        MIRRORS="DIRECT ${MEDIAMTX_DOWNLOAD_MIRRORS:-} https://ghproxy.com/ https://mirror.ghproxy.com/ https://ghproxy.net/"
+        if [ -n "${MEDIAMTX_DOWNLOAD_MIRRORS:-}" ]; then
+            MIRRORS="DIRECT ${MEDIAMTX_DOWNLOAD_MIRRORS}"
+        else
+            MIRRORS="DIRECT https://ghproxy.com/ https://ghproxy.net/"
+        fi
         USED_URL=""
 
         for B in $URL_BASES; do
@@ -932,12 +936,19 @@ install_mediamtx() {
                 if [ "$P" = "DIRECT" ]; then
                     CAND="$B"
                 else
+                    if command -v getent >/dev/null 2>&1; then
+                        HOST=$(printf "%s" "$P" | sed -n 's|^https\?://\([^/]*\)/.*$|\1|p')
+                        if [ -n "$HOST" ] && ! getent hosts "$HOST" >/dev/null 2>&1; then
+                            continue
+                        fi
+                    fi
                     CAND="${P}${B}"
                 fi
 
                 rm -f "$ARCHIVE_PATH" >/dev/null 2>&1 || true
                 rm -f "$HEADERS_LOG" >/dev/null 2>&1 || true
-                if ! curl -fL --retry 3 --retry-delay 1 -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -D "$HEADERS_LOG" -o "$ARCHIVE_PATH" "$CAND" >"$DOWNLOAD_LOG" 2>&1; then
+                printf "\n[mediamtx] try: %s\n" "$CAND" >>"$DOWNLOAD_LOG" 2>&1 || true
+                if ! curl -fL --retry 3 --retry-delay 1 -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -D "$HEADERS_LOG" -o "$ARCHIVE_PATH" "$CAND" >>"$DOWNLOAD_LOG" 2>&1; then
                     continue
                 fi
 
