@@ -878,7 +878,14 @@ install_mediamtx() {
 
     if [ ! -x "/usr/local/bin/mediamtx" ]; then
         print_message "正在安装MediaMTX..."
-        URL=$(curl -sL https://api.github.com/repos/bluenviron/mediamtx/releases/latest | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
+        URL=$(curl -fsSL -H "User-Agent: web-panel-installer" https://api.github.com/repos/bluenviron/mediamtx/releases/latest 2>/dev/null | grep browser_download_url | grep "$ASSET_ARCH" | cut -d\" -f 4 | head -n 1)
+        if [ -z "$URL" ]; then
+            EFFECTIVE=$(curl -fsSLI -o /dev/null -w '%{url_effective}' -L -H "User-Agent: web-panel-installer" https://github.com/bluenviron/mediamtx/releases/latest 2>/dev/null)
+            TAG=$(printf "%s" "$EFFECTIVE" | sed 's|.*/tag/||' | tr -d '\r\n')
+            if [ -n "$TAG" ]; then
+                URL="https://github.com/bluenviron/mediamtx/releases/download/${TAG}/mediamtx_${TAG}_${ASSET_ARCH}.tar.gz"
+            fi
+        fi
         if [ -z "$URL" ]; then
             print_warning "获取MediaMTX下载地址失败，跳过安装"
             return 0
@@ -1031,10 +1038,28 @@ is_rockchip_device() {
 }
 
 has_ffmpeg() {
+    if [ -n "${JELLYFIN_FFMPEG_BIN:-}" ] && [ -x "${JELLYFIN_FFMPEG_BIN:-}" ]; then
+        return 0
+    fi
+    if [ -x "/usr/lib/jellyfin-ffmpeg/ffmpeg" ]; then
+        return 0
+    fi
+    if [ -x "/usr/lib/jellyfin-ffmpeg7/ffmpeg" ]; then
+        return 0
+    fi
     command -v ffmpeg >/dev/null 2>&1
 }
 
 has_ffprobe() {
+    if [ -n "${JELLYFIN_FFPROBE_BIN:-}" ] && [ -x "${JELLYFIN_FFPROBE_BIN:-}" ]; then
+        return 0
+    fi
+    if [ -x "/usr/lib/jellyfin-ffmpeg/ffprobe" ]; then
+        return 0
+    fi
+    if [ -x "/usr/lib/jellyfin-ffmpeg7/ffprobe" ]; then
+        return 0
+    fi
     command -v ffprobe >/dev/null 2>&1
 }
 
@@ -1141,13 +1166,29 @@ install_media_tools() {
     fi
 
     if has_ffmpeg; then
-        print_success "ffmpeg已就绪: $(command -v ffmpeg)"
+        if [ -n "${JELLYFIN_FFMPEG_BIN:-}" ] && [ -x "${JELLYFIN_FFMPEG_BIN:-}" ]; then
+            print_success "ffmpeg已就绪: $JELLYFIN_FFMPEG_BIN"
+        elif [ -x "/usr/lib/jellyfin-ffmpeg/ffmpeg" ]; then
+            print_success "ffmpeg已就绪: /usr/lib/jellyfin-ffmpeg/ffmpeg"
+        elif [ -x "/usr/lib/jellyfin-ffmpeg7/ffmpeg" ]; then
+            print_success "ffmpeg已就绪: /usr/lib/jellyfin-ffmpeg7/ffmpeg"
+        else
+            print_success "ffmpeg已就绪: $(command -v ffmpeg)"
+        fi
     else
         print_warning "ffmpeg未安装成功，H265检测/转码功能将不可用"
     fi
 
     if has_ffprobe; then
-        print_success "ffprobe已就绪: $(command -v ffprobe)"
+        if [ -n "${JELLYFIN_FFPROBE_BIN:-}" ] && [ -x "${JELLYFIN_FFPROBE_BIN:-}" ]; then
+            print_success "ffprobe已就绪: $JELLYFIN_FFPROBE_BIN"
+        elif [ -x "/usr/lib/jellyfin-ffmpeg/ffprobe" ]; then
+            print_success "ffprobe已就绪: /usr/lib/jellyfin-ffmpeg/ffprobe"
+        elif [ -x "/usr/lib/jellyfin-ffmpeg7/ffprobe" ]; then
+            print_success "ffprobe已就绪: /usr/lib/jellyfin-ffmpeg7/ffprobe"
+        else
+            print_success "ffprobe已就绪: $(command -v ffprobe)"
+        fi
     else
         print_warning "ffprobe未安装成功，H265检测功能将不可用"
     fi
