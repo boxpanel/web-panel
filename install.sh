@@ -1101,6 +1101,12 @@ install_ffmpeg_rockchip_from_source() {
     $PM install -y librga-dev >/dev/null 2>&1 || true
     $PM install -y librga2 >/dev/null 2>&1 || true
 
+    if ! pkg-config --exists rockchip_mpp 2>/dev/null && [ ! -f "/usr/local/lib/librockchip_mpp.so" ] && [ ! -f "/usr/local/lib/aarch64-linux-gnu/librockchip_mpp.so" ]; then
+        print_message "未检测到Rockchip MPP开发库，尝试源码编译安装MPP（用于启用h264_rkmpp编码器）..."
+        install_mpp_from_source || true
+        ldconfig >/dev/null 2>&1 || true
+    fi
+
     BUILD_DIR="/tmp/ffmpeg-rockchip-build"
     rm -rf "$BUILD_DIR" >/dev/null 2>&1 || true
     mkdir -p "$BUILD_DIR" || return 1
@@ -1158,6 +1164,18 @@ install_ffmpeg_rockchip_from_source() {
     fi
 
     ldconfig >/dev/null 2>&1 || true
+    
+    if [ ! -x "/usr/local/bin/ffmpeg" ] || ! /usr/local/bin/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q "h264_rkmpp"; then
+        if [ -f "$BUILD_DIR/ffmpeg-rockchip/ffmpeg" ]; then
+            cp -f "$BUILD_DIR/ffmpeg-rockchip/ffmpeg" /usr/local/bin/ffmpeg 2>/dev/null || true
+            chmod +x /usr/local/bin/ffmpeg 2>/dev/null || true
+        fi
+        if [ -f "$BUILD_DIR/ffmpeg-rockchip/ffprobe" ]; then
+            cp -f "$BUILD_DIR/ffmpeg-rockchip/ffprobe" /usr/local/bin/ffprobe 2>/dev/null || true
+            chmod +x /usr/local/bin/ffprobe 2>/dev/null || true
+        fi
+        ldconfig >/dev/null 2>&1 || true
+    fi
 
     if has_rkmpp_support; then
         print_success "ffmpeg-rockchip安装成功（检测到rkmpp编解码器）"
