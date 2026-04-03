@@ -878,6 +878,9 @@ install_mediamtx() {
 
     if [ ! -x "/usr/local/bin/mediamtx" ]; then
         print_message "正在安装MediaMTX..."
+        if [ -n "${MEDIAMTX_DOWNLOAD_URL:-}" ]; then
+            URL="${MEDIAMTX_DOWNLOAD_URL}"
+        else
         ARCH_CANDIDATES="$ASSET_ARCH"
         if [ "$ASSET_ARCH" = "linux_arm64v8" ]; then
             ARCH_CANDIDATES="linux_arm64v8 linux_arm64"
@@ -906,6 +909,7 @@ install_mediamtx() {
                 done
             fi
         fi
+        fi
         if [ -z "$URL" ]; then
             print_warning "获取MediaMTX下载地址失败，跳过安装"
             return 0
@@ -917,20 +921,23 @@ install_mediamtx() {
         ARCHIVE_PATH="$TMP_DIR/mediamtx.tar.gz"
         LIST_LOG="$TMP_DIR/tar-list.log"
         DOWNLOAD_LOG="$TMP_DIR/download.log"
+        HEADERS_LOG="$TMP_DIR/headers.log"
 
         URL_BASES="$URL ${URL}?download=1"
-        MIRRORS="${MEDIAMTX_DOWNLOAD_MIRRORS:-} https://ghproxy.com/ https://mirror.ghproxy.com/"
+        MIRRORS="DIRECT ${MEDIAMTX_DOWNLOAD_MIRRORS:-} https://ghproxy.com/ https://mirror.ghproxy.com/ https://ghproxy.net/"
         USED_URL=""
 
         for B in $URL_BASES; do
             for P in $MIRRORS; do
-                CAND="$B"
-                if [ -n "$P" ]; then
+                if [ "$P" = "DIRECT" ]; then
+                    CAND="$B"
+                else
                     CAND="${P}${B}"
                 fi
 
                 rm -f "$ARCHIVE_PATH" >/dev/null 2>&1 || true
-                if ! curl -fL --retry 3 --retry-delay 1 -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -o "$ARCHIVE_PATH" "$CAND" >"$DOWNLOAD_LOG" 2>&1; then
+                rm -f "$HEADERS_LOG" >/dev/null 2>&1 || true
+                if ! curl -fL --retry 3 --retry-delay 1 -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -D "$HEADERS_LOG" -o "$ARCHIVE_PATH" "$CAND" >"$DOWNLOAD_LOG" 2>&1; then
                     continue
                 fi
 
@@ -950,6 +957,9 @@ install_mediamtx() {
 
         if [ -z "$USED_URL" ]; then
             print_error "MediaMTX在线下载安装失败（下载内容不是有效tar.gz或网络被拦截）。请检查网络，或设置 MEDIAMTX_DOWNLOAD_MIRRORS 使用可访问的镜像前缀。"
+            if [ -f "$HEADERS_LOG" ]; then
+                tail -n 30 "$HEADERS_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
+            fi
             tail -n 30 "$DOWNLOAD_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
             return 1
         fi
