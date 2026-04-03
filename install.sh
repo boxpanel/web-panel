@@ -937,6 +937,18 @@ install_mediamtx() {
             return 0
         fi
 
+        LIST_LOG="$TMP_DIR/tar-list.log"
+        if ! tar -tzf "$TMP_DIR/mediamtx.tar.gz" >"$LIST_LOG" 2>&1; then
+            print_warning "MediaMTX压缩包校验失败（不是有效的tar.gz），跳过安装"
+            tail -n 20 "$LIST_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
+            return 0
+        fi
+        if ! grep -Eq '(^|/)mediamtx$' "$LIST_LOG" 2>/dev/null; then
+            print_warning "MediaMTX压缩包内容异常（未找到mediamtx二进制文件），跳过安装"
+            head -n 20 "$LIST_LOG" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
+            return 0
+        fi
+
         if ! tar -xzf "$TMP_DIR/mediamtx.tar.gz" -C "$TMP_DIR"; then
             print_warning "解压MediaMTX失败，跳过安装"
             return 0
