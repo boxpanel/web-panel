@@ -915,8 +915,25 @@ install_mediamtx() {
         rm -rf "$TMP_DIR" >/dev/null 2>&1 || true
         mkdir -p "$TMP_DIR" || return 0
 
-        if ! curl -fsSL -o "$TMP_DIR/mediamtx.tar.gz" "$URL"; then
+        DOWNLOAD_OK=false
+        if curl -fL -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -o "$TMP_DIR/mediamtx.tar.gz" "$URL" >/dev/null 2>&1; then
+            DOWNLOAD_OK=true
+        fi
+        if [ "$DOWNLOAD_OK" != "true" ]; then
             print_warning "下载MediaMTX失败，跳过安装"
+            return 0
+        fi
+
+        MAGIC=$(head -c 2 "$TMP_DIR/mediamtx.tar.gz" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n\r')
+        if [ "$MAGIC" != "1f8b" ]; then
+            ALT_URL="${URL}?download=1"
+            if curl -fL -H "User-Agent: web-panel-installer" -H "Accept: application/octet-stream" -o "$TMP_DIR/mediamtx.tar.gz" "$ALT_URL" >/dev/null 2>&1; then
+                MAGIC=$(head -c 2 "$TMP_DIR/mediamtx.tar.gz" 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n\r')
+            fi
+        fi
+        if [ "$MAGIC" != "1f8b" ]; then
+            print_warning "下载到的MediaMTX文件不是tar.gz（可能被代理/网络劫持为HTML），跳过安装"
+            head -n 5 "$TMP_DIR/mediamtx.tar.gz" 2>/dev/null | tee -a "$LOG_FILE" >/dev/null || true
             return 0
         fi
 
