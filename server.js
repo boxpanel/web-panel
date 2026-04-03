@@ -330,21 +330,21 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
     const maxW = opts && typeof opts.maxW === 'number' && opts.maxW > 0 ? opts.maxW : (MEDIAMTX_MAX_WIDTH > 0 ? MEDIAMTX_MAX_WIDTH : 3840);
     const maxH = opts && typeof opts.maxH === 'number' && opts.maxH > 0 ? opts.maxH : (MEDIAMTX_MAX_HEIGHT > 0 ? MEDIAMTX_MAX_HEIGHT : 2160);
     const useRga = Boolean(opts && opts.useRga);
-    const useHwDecode = !(opts && opts.useHwDecode === false);
     const scaleToMaxRga = `scale_rkrga=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})':format=nv12`;
     const scaleToMaxCpu = `scale=w='if(gt(a,${maxW}/${maxH}),${maxW},-2)':h='if(gt(a,${maxW}/${maxH}),-2,${maxH})'`;
     const evenCrop = 'crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2';
     const evenScale = 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
     const vfChainRga = [scaleToMaxRga, evenCrop].filter(Boolean).join(',');
-    const vfChainCpuHw = ['hwdownload', 'format=nv12', scaleToMaxCpu, evenScale, fpsFilter].filter(Boolean).join(',');
     const vfChainCpuSw = [scaleToMaxCpu, evenScale, 'format=nv12', fpsFilter].filter(Boolean).join(',');
 
-    const baseArgs = [
+    const baseArgsSw = [
         ...baseInput,
-        '-i', inputRtsp,
+        '-i',
+        inputRtsp,
         '-vf',
         '',
         '-fps_mode', 'drop',
+        '-r', String(pickedFps),
         '-an',
         '-c:v', 'h264_rkmpp',
         '-profile:v', 'baseline',
@@ -357,18 +357,11 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
         output
     ];
 
-    if (useHwDecode) {
-        const insertAt = baseArgs.indexOf('-i');
-        if (insertAt >= 0) {
-            baseArgs.splice(insertAt, 0, '-c:v', 'hevc_rkmpp');
-        }
-    }
-
     const cmdCpu = (() => {
-        const args = [...baseArgs];
+        const args = [...baseArgsSw];
         const vfIdx = args.indexOf('-vf');
         if (vfIdx >= 0 && vfIdx + 1 < args.length) {
-            args[vfIdx + 1] = quoteForShDouble(useHwDecode ? vfChainCpuHw : vfChainCpuSw);
+            args[vfIdx + 1] = quoteForShDouble(vfChainCpuSw);
         }
         return args.join(' ');
     })();
@@ -378,7 +371,11 @@ function buildMediamtxRunOnDemandCommand({ pathName, inputRtsp, codec, inputFps,
     }
 
     const cmdRga = (() => {
-        const args = [...baseArgs];
+        const args = [...baseArgsSw];
+        const insertAt = args.indexOf('-i');
+        if (insertAt >= 0) {
+            args.splice(insertAt, 0, '-c:v', 'hevc_rkmpp');
+        }
         const vfIdx = args.indexOf('-vf');
         if (vfIdx >= 0 && vfIdx + 1 < args.length) {
             args[vfIdx + 1] = quoteForShDouble(vfChainRga);
